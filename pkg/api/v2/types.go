@@ -18,6 +18,7 @@
 package v2
 
 import (
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	"github.com/envoyproxy/go-control-plane/envoy/api/v2/auth"
+	"github.com/gogo/protobuf/jsonpb"
 	"istio.io/api/mixer/v1/config/client"
 	"sofastack.io/sofa-mosn/pkg/utils"
 )
@@ -144,7 +146,6 @@ type Listener struct {
 	PerConnBufferLimitBytes uint32           `json:"-"` // do not support config
 	InheritListener         *net.TCPListener `json:"-"`
 	Remain                  bool             `json:"-"`
-	DisableConnIo           bool             `json:"-"`
 }
 
 // TCPRoute
@@ -390,8 +391,29 @@ type TLSConfig struct {
 }
 
 type SdsConfig struct {
-	CertificateConfig *auth.SdsSecretConfig
-	ValidationConfig  *auth.SdsSecretConfig
+	CertificateConfig *SecretConfigWrapper
+	ValidationConfig  *SecretConfigWrapper
+}
+
+type SecretConfigWrapper struct {
+	Config *auth.SdsSecretConfig
+}
+
+func (sc SecretConfigWrapper) MarshalJSON() (b []byte, err error) {
+	newData := &bytes.Buffer{}
+	marshaler := &jsonpb.Marshaler{}
+	err = marshaler.Marshal(newData, sc.Config)
+	return newData.Bytes(), err
+}
+
+func (sc *SecretConfigWrapper) UnmarshalJSON(b []byte) error {
+	secretConfig := &auth.SdsSecretConfig{}
+	err := jsonpb.Unmarshal(bytes.NewReader(b), secretConfig)
+	if err != nil {
+		return err
+	}
+	sc.Config = secretConfig
+	return nil
 }
 
 // Valid checks the whether the SDS Config is valid or not
@@ -554,15 +576,16 @@ func (rc *RouterConfiguration) UnmarshalJSON(b []byte) error {
 		}
 		for _, f := range files {
 			fileName := path.Join(cfg.RouterConfigPath, f.Name())
-			data, err := ioutil.ReadFile(fileName)
-			if err != nil {
-				return err
-			}
 			vh := &VirtualHost{}
-			if err := json.Unmarshal(data, vh); err != nil {
-				return err
+			e := utils.ReadJsonFile(fileName, vh)
+			switch e {
+			case nil:
+				rc.VirtualHosts = append(rc.VirtualHosts, vh)
+			case utils.ErrIgnore:
+				// do nothing
+			default:
+				return e
 			}
-			rc.VirtualHosts = append(rc.VirtualHosts, vh)
 		}
 	}
 	return nil
@@ -618,6 +641,9 @@ type ServiceRegistryInfo struct {
 	ServiceAppInfo ApplicationInfo     `json:"application,omitempty"`
 	ServicePubInfo []PublishInfo       `json:"publish_info,omitempty"`
 	MsgMetaInfo    map[string][]string `json:"msg_meta_info,omitempty"`
+	MqClientKey    map[string]string   `json:"mq_client_key,omitempty"`
+	MqMeta         map[string]string   `json:"mq_meta_info,omitempty"`
+	MqConsumers    map[string][]string `json:"mq_consumers,omitempty"`
 }
 
 type ApplicationInfo struct {

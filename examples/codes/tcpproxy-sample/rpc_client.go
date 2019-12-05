@@ -16,6 +16,7 @@ import (
 	"sofastack.io/sofa-mosn/pkg/stream"
 	_ "sofastack.io/sofa-mosn/pkg/stream/sofarpc"
 	"sofastack.io/sofa-mosn/pkg/types"
+	"sofastack.io/sofa-mosn/pkg/buffer"
 )
 
 type Client struct {
@@ -29,7 +30,7 @@ func NewClient(addr string) *Client {
 	stopChan := make(chan struct{})
 	remoteAddr, _ := net.ResolveTCPAddr("tcp", addr)
 	conn := network.NewClientConnection(nil, 0, nil, remoteAddr, stopChan)
-	if err := conn.Connect(true); err != nil {
+	if err := conn.Connect(); err != nil {
 		fmt.Println(err)
 		return nil
 	}
@@ -69,11 +70,12 @@ func buildBoltV1Request(requestID uint64) *sofarpc.BoltRequest {
 
 	headers := map[string]string{"service": "testSofa"} // used for sofa routing
 
-	if headerBytes, err := serialize.Instance.Serialize(headers); err != nil {
+	buf := buffer.NewIoBuffer(100)
+	if err := serialize.Instance.SerializeMap(headers, buf); err != nil {
 		panic("serialize headers error")
 	} else {
-		request.HeaderMap = headerBytes
-		request.HeaderLen = int16(len(headerBytes))
+		request.HeaderMap = buf.Bytes()
+		request.HeaderLen = int16(buf.Len())
 	}
 
 	return request

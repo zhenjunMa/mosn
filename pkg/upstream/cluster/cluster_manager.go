@@ -36,7 +36,10 @@ import (
 var errNilCluster = errors.New("cannot update nil cluster")
 
 // refreshHostsConfig refresh the stored config for admin api
-func refreshHostsConfig(name string, hosts []types.Host) {
+func refreshHostsConfig(c types.Cluster) {
+	// use new cluster snapshot to get new cluster config
+	name := c.Snapshot().ClusterInfo().Name()
+	hosts := c.Snapshot().HostSet().Hosts()
 	hostsConfig := make([]v2.Host, 0, len(hosts))
 	for _, h := range hosts {
 		hostsConfig = append(hostsConfig, h.Config())
@@ -102,7 +105,7 @@ func (cm *clusterManager) AddOrUpdatePrimaryCluster(cluster v2.Cluster) error {
 	// new cluster
 	newCluster := NewCluster(cluster)
 	if newCluster == nil || reflect.ValueOf(newCluster).IsNil() {
-		log.DefaultLogger.Alertf(types.ErrorKeyClusterUpdate, "update cluster %s failed", cluster.Name)
+		log.DefaultLogger.Errorf("[cluster] [cluster manager] [AddOrUpdatePrimaryCluster] update cluster %s failed", cluster.Name)
 		return errNilCluster
 	}
 	// check update or new
@@ -117,7 +120,7 @@ func (cm *clusterManager) AddOrUpdatePrimaryCluster(cluster v2.Cluster) error {
 		hosts := c.Snapshot().HostSet().Hosts()
 		// update hosts, refresh
 		newCluster.UpdateHosts(hosts)
-		refreshHostsConfig(clusterName, hosts)
+		refreshHostsConfig(c)
 	}
 	cm.clustersMap.Store(clusterName, newCluster)
 	log.DefaultLogger.Infof("[cluster] [cluster manager] [AddOrUpdatePrimaryCluster] cluster %s updated", clusterName)
@@ -146,7 +149,7 @@ func (cm *clusterManager) RemovePrimaryCluster(clusterNames ...string) error {
 	// check all clutsers in cluster manager
 	for _, clusterName := range clusterNames {
 		if _, ok := cm.clustersMap.Load(clusterName); !ok {
-			log.DefaultLogger.Alertf(types.ErrorKeyClusterDelete, "delete cluster %s not exists", clusterName)
+			log.DefaultLogger.Errorf("[upstream] [cluster manager] Remove Primary Cluster,  cluster %s not exists", clusterName)
 			return fmt.Errorf("remove cluster failed, cluster %s is not exists", clusterName)
 		}
 	}
@@ -165,7 +168,7 @@ func (cm *clusterManager) RemovePrimaryCluster(clusterNames ...string) error {
 func (cm *clusterManager) UpdateClusterHosts(clusterName string, hostConfigs []v2.Host) error {
 	ci, ok := cm.clustersMap.Load(clusterName)
 	if !ok {
-		log.DefaultLogger.Alertf(types.ErrorKeyHostsUpdate, "cluster %s not found", clusterName)
+		log.DefaultLogger.Errorf("[upstream] [cluster manager] UpdateClusterHosts cluster %s not found", clusterName)
 		return fmt.Errorf("cluster %s is not exists", clusterName)
 	}
 	c := ci.(types.Cluster)
@@ -175,7 +178,7 @@ func (cm *clusterManager) UpdateClusterHosts(clusterName string, hostConfigs []v
 		hosts = append(hosts, NewSimpleHost(hc, snap.ClusterInfo()))
 	}
 	c.UpdateHosts(hosts)
-	refreshHostsConfig(clusterName, hosts)
+	refreshHostsConfig(c)
 	return nil
 }
 
@@ -183,7 +186,7 @@ func (cm *clusterManager) UpdateClusterHosts(clusterName string, hostConfigs []v
 func (cm *clusterManager) AppendClusterHosts(clusterName string, hostConfigs []v2.Host) error {
 	ci, ok := cm.clustersMap.Load(clusterName)
 	if !ok {
-		log.DefaultLogger.Alertf(types.ErrorKeyHostsAppend, "cluster %s not found", clusterName)
+		log.DefaultLogger.Errorf("[upstream] [cluster manager] AppendClusterHosts cluster %s not found", clusterName)
 		return fmt.Errorf("cluster %s is not exists", clusterName)
 	}
 	c := ci.(types.Cluster)
@@ -194,7 +197,7 @@ func (cm *clusterManager) AppendClusterHosts(clusterName string, hostConfigs []v
 	}
 	hosts = append(hosts, snap.HostSet().Hosts()...)
 	c.UpdateHosts(hosts)
-	refreshHostsConfig(clusterName, hosts)
+	refreshHostsConfig(c)
 	return nil
 }
 
@@ -202,7 +205,7 @@ func (cm *clusterManager) AppendClusterHosts(clusterName string, hostConfigs []v
 func (cm *clusterManager) RemoveClusterHosts(clusterName string, addrs []string) error {
 	ci, ok := cm.clustersMap.Load(clusterName)
 	if !ok {
-		log.DefaultLogger.Alertf(types.ErrorKeyHostsDelete, "cluster %s not found", clusterName)
+		log.DefaultLogger.Errorf("[upstream] [cluster manager] RemoveClusterHosts cluster %s not found", clusterName)
 		return fmt.Errorf("cluster %s is not exists", clusterName)
 	}
 	c := ci.(types.Cluster)
@@ -222,7 +225,7 @@ func (cm *clusterManager) RemoveClusterHosts(clusterName string, addrs []string)
 		}
 	}
 	c.UpdateHosts(sortedHosts)
-	refreshHostsConfig(clusterName, sortedHosts)
+	refreshHostsConfig(c)
 	return nil
 }
 

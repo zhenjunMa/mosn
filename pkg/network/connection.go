@@ -19,6 +19,7 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -43,11 +44,20 @@ import (
 const (
 	DefaultBufferReadCapacity = 1 << 7
 
+	NetBufferDefaultSize     = 0
+	NetBufferDefaultCapacity = 1 << 4
+
 	DefaultIdleTimeout    = 90 * time.Second
 	DefaultConnectTimeout = 3 * time.Second
 )
 
 var idCounter uint64 = 1
+
+var netBufferPool = sync.Pool{
+	New: func() interface{} {
+		return make(net.Buffers, NetBufferDefaultSize, NetBufferDefaultCapacity)
+	},
+}
 
 type connection struct {
 	id         uint64
@@ -116,7 +126,7 @@ func NewServerConnection(ctx context.Context, rawc net.Conn, stopChan chan struc
 		connected:        1,
 		readEnabledChan:  make(chan bool, 1),
 		internalStopChan: make(chan struct{}),
-		writeBufferChan:  make(chan *[]types.IoBuffer, 32),
+		writeBufferChan:  make(chan *[]types.IoBuffer, 8),
 		writeSchedChan:   make(chan bool, 1),
 		transferChan:     make(chan uint64),
 		stats: &types.ConnectionStats{
@@ -424,7 +434,7 @@ func (c *connection) doRead() (err error) {
 
 	if err != nil {
 		if atomic.LoadUint32(&c.closed) == 1 {
-			return nil
+			return err
 		}
 		if te, ok := err.(net.Error); ok && te.Timeout() {
 			for _, cb := range c.connCallbacks {
@@ -436,6 +446,13 @@ func (c *connection) doRead() (err error) {
 		} else if err != io.EOF {
 			return err
 		}
+	}
+
+	//todo: ReadOnce maybe always return (0, nil) and causes dead loop (hack)
+	if bytesRead == 0 && err == nil {
+		err = io.EOF
+		log.DefaultLogger.Errorf("[network] ReadOnce maybe always return (0, nil) and causes dead loop, Connection = %d, Local Address = %+v, Remote Address = %+v",
+			c.id, c.rawConnection.LocalAddr(), c.RemoteAddr())
 	}
 
 	for _, cb := range c.bytesReadCallbacks {
@@ -540,7 +557,8 @@ func (c *connection) writeDirectly(buf *[]types.IoBuffer) (err error) {
 		return
 	}
 
-	var writeBuffer net.Buffers
+	netBuffer := netBufferPool.Get().(net.Buffers)
+	writeBuffer := netBuffer
 	var writeBufferLen int64
 
 	for _, buf := range *buf {
@@ -573,7 +591,12 @@ func (c *connection) writeDirectly(buf *[]types.IoBuffer) (err error) {
 		return
 	}
 
+	netBufferPool.Put(netBuffer)
+
 	for _, buf := range *buf {
+		if buf == nil {
+			continue
+		}
 		if buf.EOF() {
 			err = buffer.EOF
 		}
@@ -757,11 +780,10 @@ func (c *connection) Close(ccType types.ConnectionCloseType, eventType types.Con
 	}
 
 	// wait for io loops exit, ensure single thread operate streams on the connection
-	if c.internalLoopStarted {
-		// because close function must be called by one io loop thread, notify another loop here
-		close(c.internalStopChan)
-		close(c.writeBufferChan)
-	} else if c.eventLoop != nil {
+	// because close function must be called by one io loop thread, notify another loop here
+	close(c.internalStopChan)
+	close(c.writeBufferChan)
+	if c.eventLoop != nil {
 		// unregister events while connection close
 		c.eventLoop.unregister(c.id)
 		// close copied fd
@@ -895,6 +917,16 @@ func (c *connection) SetTransferEventListener(listener func() bool) {
 	c.transferCallbacks = listener
 }
 
+func (c *connection) State() types.ConnState {
+	if atomic.LoadUint32(&c.closed) == 1 {
+		return types.ConnClosed
+	}
+	if atomic.LoadUint32(&c.connected) == 1 {
+		return types.ConnActive
+	}
+	return types.ConnInit
+}
+
 type clientConnection struct {
 	connection
 
@@ -916,7 +948,7 @@ func NewClientConnection(sourceAddr net.Addr, connectTimeout time.Duration, tlsM
 			readEnabled:      true,
 			readEnabledChan:  make(chan bool, 1),
 			internalStopChan: make(chan struct{}),
-			writeBufferChan:  make(chan *[]types.IoBuffer, 32),
+			writeBufferChan:  make(chan *[]types.IoBuffer, 8),
 			writeSchedChan:   make(chan bool, 1),
 			stats: &types.ConnectionStats{
 				ReadTotal:     metrics.NewCounter(),
@@ -936,7 +968,7 @@ func NewClientConnection(sourceAddr net.Addr, connectTimeout time.Duration, tlsM
 	return conn
 }
 
-func (cc *clientConnection) Connect(ioEnabled bool) (err error) {
+func (cc *clientConnection) Connect() (err error) {
 	cc.connectOnce.Do(func() {
 		var event types.ConnectionEvent
 
@@ -945,7 +977,12 @@ func (cc *clientConnection) Connect(ioEnabled bool) (err error) {
 			timeout = DefaultConnectTimeout
 		}
 
-		cc.rawConnection, err = net.DialTimeout("tcp", cc.RemoteAddr().String(), timeout)
+		addr := cc.RemoteAddr()
+		if addr != nil {
+			cc.rawConnection, err = net.DialTimeout("tcp", cc.RemoteAddr().String(), timeout)
+		} else {
+			err = errors.New("ClientConnection RemoteAddr is nil")
+		}
 
 		if err != nil {
 			if err == io.EOF {
@@ -961,7 +998,7 @@ func (cc *clientConnection) Connect(ioEnabled bool) (err error) {
 			event = types.Connected
 
 			// ensure ioEnabled and UseNetpollMode
-			if ioEnabled && UseNetpollMode {
+			if UseNetpollMode {
 				// store fd
 				if tc, ok := cc.rawConnection.(*net.TCPConn); ok {
 					cc.file, err = tc.File()
@@ -972,16 +1009,21 @@ func (cc *clientConnection) Connect(ioEnabled bool) (err error) {
 			}
 
 			if cc.tlsMng != nil {
-				cc.rawConnection = cc.tlsMng.Conn(cc.rawConnection)
+				// usually, the client tls manager will never returns an error
+				cc.rawConnection, err = cc.tlsMng.Conn(cc.rawConnection)
+
 			}
 
-			if ioEnabled {
+			if err != nil {
+				event = types.ConnectFailed
+				cc.rawConnection.Close()
+			} else {
 				cc.Start(nil)
 			}
 		}
 
 		if log.DefaultLogger.GetLogLevel() >= log.DEBUG {
-			log.DefaultLogger.Debugf("[network] [client connection connect] connect raw tcp, remote address = %s ,event = %+v, error = %+v", cc.remoteAddr.String(), event, err)
+			log.DefaultLogger.Debugf("[network] [client connection connect] connect raw tcp, remote address = %s ,event = %+v, error = %+v", cc.remoteAddr, event, err)
 		}
 
 		for _, cccb := range cc.connCallbacks {

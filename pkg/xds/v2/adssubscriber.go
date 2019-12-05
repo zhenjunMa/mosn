@@ -18,6 +18,7 @@
 package v2
 
 import (
+	"math/rand"
 	"time"
 
 	"sofastack.io/sofa-mosn/pkg/log"
@@ -41,7 +42,7 @@ func (adsClient *ADSClient) sendThread() {
 	log.DefaultLogger.Debugf("[xds] [ads client] send thread request cds")
 	err := adsClient.reqClusters(adsClient.StreamClient)
 	if err != nil {
-		log.DefaultLogger.Warnf("[xds] [ads client] send thread request cds fail!auto retry next period")
+		log.DefaultLogger.Infof("[xds] [ads client] send thread request cds fail!auto retry next period")
 		adsClient.reconnect()
 	}
 
@@ -57,7 +58,7 @@ func (adsClient *ADSClient) sendThread() {
 		case <-t1.C:
 			err := adsClient.reqClusters(adsClient.StreamClient)
 			if err != nil {
-				log.DefaultLogger.Warnf("[xds] [ads client] send thread request cds fail!auto retry next period")
+				log.DefaultLogger.Infof("[xds] [ads client] send thread request cds fail!auto retry next period")
 				adsClient.reconnect()
 			}
 			t1.Reset(*refreshDelay)
@@ -74,13 +75,13 @@ func (adsClient *ADSClient) receiveThread() {
 			return
 		default:
 			if adsClient.StreamClient == nil {
-				log.DefaultLogger.Warnf("[xds] [ads client] stream client closed, sleep 1s and wait for reconnect")
+				log.DefaultLogger.Infof("[xds] [ads client] stream client closed, sleep 1s and wait for reconnect")
 				time.Sleep(time.Second)
 				continue
 			}
 			resp, err := adsClient.StreamClient.Recv()
 			if err != nil {
-				log.DefaultLogger.Warnf("[xds] [ads client] get resp timeout: %v, retry after 1s", err)
+				log.DefaultLogger.Infof("[xds] [ads client] get resp timeout: %v, retry after 1s", err)
 				time.Sleep(time.Second)
 				continue
 			}
@@ -90,21 +91,46 @@ func (adsClient *ADSClient) receiveThread() {
 	}
 }
 
+var disableReconnect bool
+
+func DisableReconnect() {
+	disableReconnect = true
+}
+
+func EnableReconnect() {
+	disableReconnect = false
+}
+
+const maxRertyInterval = 60 * time.Second
+
+func computeInterval(t time.Duration) time.Duration {
+	t = t * 2
+	if t >= maxRertyInterval {
+		t = maxRertyInterval
+	}
+	return t
+}
+
 func (adsClient *ADSClient) reconnect() {
 
 	adsClient.AdsConfig.closeADSStreamClient()
 	adsClient.StreamClient = nil
 	log.DefaultLogger.Infof("[xds] [ads client] stream client closed")
 
+	interval := time.Second
+
 	for {
-		adsClient.StreamClient = adsClient.AdsConfig.GetStreamClient()
-		if adsClient.StreamClient == nil {
-			log.DefaultLogger.Warnf("[xds] [ads client] stream client reconnect failed, retry after 1s")
-			time.Sleep(time.Second)
-			continue
+		if !disableReconnect {
+			adsClient.StreamClient = adsClient.AdsConfig.GetStreamClient()
+			if adsClient.StreamClient != nil {
+				log.DefaultLogger.Infof("[xds] [ads client] stream client reconnected")
+				return
+			}
+			log.DefaultLogger.Infof("[xds] [ads client] stream client reconnect failed, retry after %v", interval)
 		}
-		log.DefaultLogger.Infof("[xds] [ads client] stream client reconnected")
-		break
+		// sleep random
+		time.Sleep(interval + time.Duration(rand.Intn(1000))*time.Millisecond)
+		interval = computeInterval(interval)
 	}
 }
 

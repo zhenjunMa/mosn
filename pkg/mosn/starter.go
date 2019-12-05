@@ -157,7 +157,6 @@ func NewMosn(c *config.MOSNConfig) *Mosn {
 			for idx, _ := range serverConfig.Listeners {
 				// parse ListenerConfig
 				lc := config.ParseListenerConfig(&serverConfig.Listeners[idx], inheritListeners)
-				lc.DisableConnIo = config.GetListenerDisableIO(&lc.FilterChains[0])
 
 				// parse routers from connection_manager filter and add it the routerManager
 				if routerConfig := config.ParseRouterConfiguration(&lc.FilterChains[0]); routerConfig.RouterConfigName != "" {
@@ -244,16 +243,22 @@ func (m *Mosn) beforeStart() {
 func (m *Mosn) Start() {
 	m.wg.Add(1)
 	// Start XDS if configured
+	log.StartLogger.Infof("mosn start xds client")
 	m.xdsClient = &xds.Client{}
-	m.xdsClient.Start(m.config)
+	utils.GoWithRecover(func() {
+		m.xdsClient.Start(m.config)
+	}, nil)
 	// TODO: remove it
 	//parse service registry info
+	log.StartLogger.Infof("mosn parse registry info")
 	config.ParseServiceRegistry(m.config.ServiceRegistry)
 
 	// beforestart starts transfer connection and non-proxy listeners
+	log.StartLogger.Infof("mosn prepare for start")
 	m.beforeStart()
 
 	// start mosn server
+	log.StartLogger.Infof("mosn start server")
 	for _, srv := range m.servers {
 		utils.GoWithRecover(func() {
 			srv.Start()

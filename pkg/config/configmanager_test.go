@@ -19,8 +19,11 @@ package config
 
 import (
 	"encoding/json"
+	"math/rand"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 
 	v2 "sofastack.io/sofa-mosn/pkg/api/v2"
 )
@@ -34,7 +37,7 @@ func mockInitConfig(t *testing.T, cfg []byte) {
 
 func TestUpdateClusterConfig(t *testing.T) {
 	// only keep useful test part
-	cfg := []byte(basicClusterConfigStr)
+	cfg := []byte(basicConfigStr)
 	mockInitConfig(t, cfg)
 	// add a cluster
 	clusterConfigStr := `{
@@ -149,4 +152,119 @@ func TestUpdateStreamFilter(t *testing.T) {
 			t.Errorf("%s stream filter config update not expected", name)
 		}
 	}
+}
+
+func TestUpdateMqClientKey(t *testing.T) {
+	UpdateMqClientKey("hello", "ck", false)
+	if len(config.ServiceRegistry.MqClientKey) != 1 {
+		t.Errorf("len(config.ServiceRegistry.MqClientKey) != 1")
+	}
+
+	UpdateMqClientKey("hello", "", true)
+	if len(config.ServiceRegistry.MqClientKey) != 0 {
+		t.Errorf("len(config.ServiceRegistry.MqClientKey) != 0")
+	}
+}
+
+func TestUpdateMqMeta(t *testing.T) {
+	UpdateMqMeta("TP_TEST", "meta", false)
+	if len(config.ServiceRegistry.MqMeta) != 1 {
+		t.Errorf("len(config.ServiceRegistry.MqMeta) != 1")
+	}
+
+	UpdateMqMeta("TP_TEST", "meta", true)
+	if len(config.ServiceRegistry.MqMeta) != 0 {
+		t.Errorf("len(config.ServiceRegistry.MqMeta) != 0")
+	}
+}
+
+func TestSetMqConsumers(t *testing.T) {
+	SetMqConsumers("TP_TEST", []string{"cs1", "cs2", "cs3"})
+	if len(config.ServiceRegistry.MqConsumers) != 1 {
+		t.Errorf("len(config.ServiceRegistry.MqConsumers) != 1")
+	}
+
+	SetMqConsumers("TP_TEST", []string{})
+	if len(config.ServiceRegistry.MqConsumers) != 0 {
+		t.Errorf("len(config.ServiceRegistry.MqConsumers) != 0")
+	}
+}
+
+func TestRmMqConsumers(t *testing.T) {
+	SetMqConsumers("TP_TEST", []string{"cs1", "cs2", "cs3"})
+	RmMqConsumers("TP_TEST")
+	if len(config.ServiceRegistry.MqConsumers) != 0 {
+		t.Errorf("len(config.ServiceRegistry.MqConsumers) != 0")
+	}
+}
+
+// test avoid dead lock
+func TestUpdateConfigConcurrency(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	cfg := []byte(basicConfigStr)
+	mockInitConfig(t, cfg)
+	wg := sync.WaitGroup{}
+	for _, fc := range []func(){
+		func() {
+			ResetServiceRegistryInfo(v2.ApplicationInfo{}, []string{})
+		},
+		func() {
+			AddOrUpdateClusterConfig([]v2.Cluster{})
+		},
+		func() {
+			RemoveClusterConfig([]string{})
+		},
+		func() {
+			AddPubInfo(map[string]string{
+				"key": "value",
+			})
+		},
+		func() {
+			DelPubInfo("key")
+		},
+		func() {
+			AddClusterWithRouter("egress", []v2.Cluster{}, &v2.RouterConfiguration{})
+		},
+		func() {
+			AddOrUpdateRouterConfig("egress", &v2.RouterConfiguration{})
+		},
+		func() {
+			AddOrUpdateStreamFilters("egress", "test", map[string]interface{}{})
+		},
+		func() {
+			AddMsgMeta("data", "group")
+		},
+		func() {
+			DelMsgMeta("data")
+		},
+		func() {
+			UpdateMqClientKey("id", "key", false)
+			UpdateMqClientKey("id", "key", true)
+		},
+		func() {
+			UpdateMqMeta("topic", "meta", false)
+			UpdateMqMeta("topic", "meta", true)
+		},
+		func() {
+			SetMqConsumers("key", []string{})
+		},
+		func() {
+			RmMqConsumers("key")
+		},
+		func() {
+			dumpRouterConfig()
+		},
+	} {
+		f := fc
+		wg.Add(1)
+		go func() {
+			for i := 0; i < 1000; i++ {
+				ri := rand.Intn(3000)
+				f()
+				time.Sleep(time.Duration(ri))
+			}
+			wg.Done()
+		}()
+	}
+	wg.Wait()
 }

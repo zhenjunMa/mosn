@@ -41,13 +41,13 @@ import (
 	"istio.io/api/mixer/v1/config/client"
 	"sofastack.io/sofa-mosn/pkg/api/v2"
 	"sofastack.io/sofa-mosn/pkg/config"
+	"sofastack.io/sofa-mosn/pkg/featuregate"
 	"sofastack.io/sofa-mosn/pkg/log"
 	"sofastack.io/sofa-mosn/pkg/protocol"
 	"sofastack.io/sofa-mosn/pkg/router"
 	payloadlimit "sofastack.io/sofa-mosn/pkg/xds/model/filter/http/payloadlimit/v2"
 	xdsxproxy "sofastack.io/sofa-mosn/pkg/xds/model/filter/network/x_proxy/v2"
 	"sofastack.io/sofa-mosn/pkg/xds/v2/rds"
-	"sofastack.io/sofa-mosn/pkg/featuregate"
 )
 
 // support network filter list
@@ -86,7 +86,7 @@ func ConvertListenerConfig(xdsListener *xdsapi.Listener) *v2.Listener {
 			UseOriginalDst: xdsListener.GetUseOriginalDst().GetValue(),
 			AccessLogs:     convertAccessLogs(xdsListener),
 		},
-		Addr:                    convertAddress(&xdsListener.Address),
+		Addr: convertAddress(&xdsListener.Address),
 		PerConnBufferLimitBytes: xdsListener.GetPerConnectionBufferLimitBytes().GetValue(),
 	}
 
@@ -102,9 +102,6 @@ func ConvertListenerConfig(xdsListener *xdsapi.Listener) *v2.Listener {
 		listenerConfig.FilterChains[0].Filters != nil {
 		listenerConfig.StreamFilters = convertStreamFilters(&xdsListener.FilterChains[0].Filters[0])
 	}
-
-	// TODO: remove it
-	listenerConfig.DisableConnIo = false
 
 	return listenerConfig
 }
@@ -554,7 +551,9 @@ func convertFilterConfig(name string, s *types.Struct) map[string]map[string]int
 		if routersMngIns := router.GetRoutersMangerInstance(); routersMngIns == nil {
 			log.DefaultLogger.Errorf("xds AddOrUpdateRouters error: router manager in nil")
 		} else {
-			routersMngIns.AddOrUpdateRouters(routerConfig)
+			if err := routersMngIns.AddOrUpdateRouters(routerConfig); err != nil {
+				log.DefaultLogger.Errorf("xds AddOrUpdateRouters error: %v", err)
+			}
 		}
 		filtersConfigParsed[v2.CONNECTION_MANAGER] = toMap(routerConfig)
 	} else {
@@ -1131,8 +1130,8 @@ func convertTLS(xdsTLSContext interface{}) v2.TLSConfig {
 	} else if tlsCertSdsConfig := common.GetTlsCertificateSdsSecretConfigs(); tlsCertSdsConfig != nil && len(tlsCertSdsConfig) > 0 {
 		isSdsMode = true
 		if validationContext, ok := common.GetValidationContextType().(*xdsauth.CommonTlsContext_CombinedValidationContext); ok {
-			config.SdsConfig.CertificateConfig = tlsCertSdsConfig[0]
-			config.SdsConfig.ValidationConfig = validationContext.CombinedValidationContext.GetValidationContextSdsSecretConfig()
+			config.SdsConfig.CertificateConfig = &v2.SecretConfigWrapper{Config: tlsCertSdsConfig[0]}
+			config.SdsConfig.ValidationConfig = &v2.SecretConfigWrapper{Config: validationContext.CombinedValidationContext.GetValidationContextSdsSecretConfig()}
 		}
 	}
 

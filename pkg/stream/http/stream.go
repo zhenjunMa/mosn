@@ -28,6 +28,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"time"
+
 	"github.com/valyala/fasthttp"
 	"sofastack.io/sofa-mosn/pkg/buffer"
 	mosnctx "sofastack.io/sofa-mosn/pkg/context"
@@ -38,7 +40,6 @@ import (
 	"sofastack.io/sofa-mosn/pkg/trace"
 	"sofastack.io/sofa-mosn/pkg/types"
 	"sofastack.io/sofa-mosn/pkg/utils"
-	"time"
 )
 
 func init() {
@@ -127,10 +128,17 @@ type streamConnection struct {
 }
 
 // types.StreamConnection
-func (conn *streamConnection) Dispatch(buffer types.IoBuffer) {
+func (sc *streamConnection) Dispatch(buffer types.IoBuffer) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.DefaultLogger.Errorf("[stream] [http] connection has closed. Connection = %d, Local Address = %+v, Remote Address = %+v, err = %+v",
+				sc.conn.ID(), sc.conn.LocalAddr(), sc.conn.RemoteAddr(), r)
+		}
+	}()
+
 	for buffer.Len() > 0 {
-		conn.bufChan <- buffer
-		<-conn.bufChan
+		sc.bufChan <- buffer
+		<-sc.bufChan
 	}
 }
 
@@ -229,8 +237,8 @@ func (conn *clientStreamConnection) serve() {
 			return
 		}
 
-		if log.Proxy.GetLogLevel() >= log.INFO {
-			log.Proxy.Infof(s.stream.ctx, "[stream] [http] receive response, requestId = %v", s.stream.id)
+		if log.Proxy.GetLogLevel() >= log.DEBUG {
+			log.Proxy.Debugf(s.stream.ctx, "[stream] [http] receive response, requestId = %v", s.stream.id)
 		}
 
 		// 2. response processing
@@ -384,7 +392,7 @@ func (conn *serverStreamConnection) serve() {
 		// 4. request processing
 		s.stream = stream{
 			id:       id,
-			ctx:      context.WithValue(ctx, types.ContextKeyStreamID, id),
+			ctx:      mosnctx.WithValue(ctx, types.ContextKeyStreamID, id),
 			request:  request,
 			response: &buffers.serverResponse,
 		}
@@ -401,8 +409,8 @@ func (conn *serverStreamConnection) serve() {
 		}
 		s.stream.ctx = s.connection.contextManager.InjectTrace(ctx, span)
 
-		if log.Proxy.GetLogLevel() >= log.INFO {
-			log.Proxy.Infof(s.stream.ctx, "[stream] [http] new stream detect, requestId = %v", s.stream.id)
+		if log.Proxy.GetLogLevel() >= log.DEBUG {
+			log.Proxy.Debugf(s.stream.ctx, "[stream] [http] new stream detect, requestId = %v", s.stream.id)
 		}
 
 		s.receiver = conn.serverStreamConnListener.NewStreamDetect(s.stream.ctx, s, span)
@@ -471,7 +479,8 @@ type clientStream struct {
 
 // types.StreamSender
 func (s *clientStream) AppendHeaders(context context.Context, headersIn types.HeaderMap, endStream bool) error {
-	headers := headersIn.(mosnhttp.RequestHeader)
+	// clone for retry case
+	headers := headersIn.Clone().(mosnhttp.RequestHeader)
 
 	// TODO: protocol convert in pkg/protocol
 	//if the request contains body, use "POST" as default, the http request method will be setted by MosnHeaderMethod
@@ -522,8 +531,8 @@ func (s *clientStream) endStream() {
 		return
 	}
 
-	if log.Proxy.GetLogLevel() >= log.INFO {
-		log.Proxy.Infof(s.stream.ctx, "[stream] [http] send client request, requestId = %v", s.stream.id)
+	if log.Proxy.GetLogLevel() >= log.DEBUG {
+		log.Proxy.Debugf(s.stream.ctx, "[stream] [http] send client request, requestId = %v", s.stream.id)
 	}
 	s.connection.requestSent <- true
 }
@@ -683,8 +692,8 @@ func (s *serverStream) doSend() {
 	if _, err := s.response.WriteTo(s.connection); err != nil {
 		log.Proxy.Errorf(s.stream.ctx, "[stream] [http] send server response error: %+v", err)
 	} else {
-		if log.Proxy.GetLogLevel() >= log.INFO {
-			log.Proxy.Infof(s.stream.ctx, "[stream] [http] send server response, requestId = %v", s.stream.id)
+		if log.Proxy.GetLogLevel() >= log.DEBUG {
+			log.Proxy.Debugf(s.stream.ctx, "[stream] [http] send server response, requestId = %v", s.stream.id)
 		}
 	}
 }

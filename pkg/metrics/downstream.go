@@ -38,6 +38,9 @@ const (
 	DownstreamRequestReset       = "request_reset"
 	DownstreamRequestTime        = "request_time"
 	DownstreamRequestTimeTotal   = "request_time_total"
+	DownstreamProcessTime        = "process_time"
+	DownstreamProcessTimeTotal   = "process_time_total"
+	DownstreamRequestFailed      = "request_failed"
 )
 
 // NewProxyStats returns a stats with namespace prefix proxy

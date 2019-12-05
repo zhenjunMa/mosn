@@ -148,9 +148,9 @@ func newActiveStream(ctx context.Context, proxy *proxy, responseSender types.Str
 	proxy.listenerStats.DownstreamRequestActive.Inc(1)
 
 	// info message for new downstream
-	if log.Proxy.GetLogLevel() >= log.INFO {
+	if log.Proxy.GetLogLevel() >= log.DEBUG {
 		requestId := mosnctx.Get(stream.context, types.ContextKeyStreamID)
-		log.Proxy.Infof(stream.context, "[proxy] [downstream] new stream, proxyId = %d , requestId =%v, oneway=%t", stream.ID, requestId, stream.oneway)
+		log.Proxy.Debugf(stream.context, "[proxy] [downstream] new stream, proxyId = %d , requestId =%v, oneway=%t", stream.ID, requestId, stream.oneway)
 	}
 	return stream
 }
@@ -180,8 +180,6 @@ func (s *downStream) cleanStream() {
 
 	s.requestInfo.SetRequestFinishedDuration(time.Now())
 
-	streamDurationNs := s.requestInfo.RequestFinishedDuration().Nanoseconds()
-
 	// reset corresponding upstream stream
 	if s.upstreamRequest != nil && !s.upstreamProcessDone && !s.oneway {
 		log.Proxy.Errorf(s.context, "[proxy] [downstream] upstreamRequest.resetStream, proxyId: %d", s.ID)
@@ -201,14 +199,8 @@ func (s *downStream) cleanStream() {
 		ef.filter.OnDestroy()
 	}
 
-	// countdown metrics
-	s.proxy.stats.DownstreamRequestActive.Dec(1)
-	s.proxy.stats.DownstreamRequestTime.Update(streamDurationNs)
-	s.proxy.stats.DownstreamRequestTimeTotal.Inc(streamDurationNs)
-
-	s.proxy.listenerStats.DownstreamRequestActive.Dec(1)
-	s.proxy.listenerStats.DownstreamRequestTime.Update(streamDurationNs)
-	s.proxy.listenerStats.DownstreamRequestTimeTotal.Inc(streamDurationNs)
+	// record metrics
+	s.requestMetrics()
 
 	// finish tracing
 	s.finishTracing()
@@ -221,6 +213,51 @@ func (s *downStream) cleanStream() {
 
 	// recycle if no reset events
 	s.giveStream()
+}
+
+// requestMetrics records the request metrics when cleanStream
+func (s *downStream) requestMetrics() {
+	streamDurationNs := s.requestInfo.RequestFinishedDuration().Nanoseconds()
+	responseReceivedNs := s.requestInfo.ResponseReceivedDuration().Nanoseconds()
+	requestReceivedNs := s.requestInfo.RequestReceivedDuration().Nanoseconds()
+	// TODO: health check should not count in stream
+	if s.requestInfo.IsHealthCheck() {
+		s.proxy.stats.DownstreamRequestTotal.Dec(1)
+		s.proxy.listenerStats.DownstreamRequestTotal.Dec(1)
+	} else {
+		processTime := requestReceivedNs // if no response, ignore the network
+		if responseReceivedNs > 0 {
+			processTime = requestReceivedNs + (streamDurationNs - responseReceivedNs)
+		}
+
+		s.proxy.stats.DownstreamProcessTime.Update(processTime)
+		s.proxy.stats.DownstreamProcessTimeTotal.Inc(processTime)
+
+		s.proxy.listenerStats.DownstreamProcessTime.Update(processTime)
+		s.proxy.listenerStats.DownstreamProcessTimeTotal.Inc(processTime)
+
+		s.proxy.stats.DownstreamRequestTime.Update(streamDurationNs)
+		s.proxy.stats.DownstreamRequestTimeTotal.Inc(streamDurationNs)
+
+		s.proxy.listenerStats.DownstreamRequestTime.Update(streamDurationNs)
+		s.proxy.listenerStats.DownstreamRequestTimeTotal.Inc(streamDurationNs)
+
+		if s.isRequestFailed() {
+			s.proxy.stats.DownstreamRequestFailed.Inc(1)
+			s.proxy.listenerStats.DownstreamRequestFailed.Inc(1)
+		}
+
+	}
+	// countdown metrics
+	s.proxy.stats.DownstreamRequestActive.Dec(1)
+	s.proxy.listenerStats.DownstreamRequestActive.Dec(1)
+}
+
+const mosnProcessFailed = types.NoHealthyUpstream | types.NoRouteFound | types.FaultInjected | types.RateLimited
+
+// isRequestFailed marks request failed due to mosn process
+func (s *downStream) isRequestFailed() bool {
+	return s.requestInfo.GetResponseFlag(mosnProcessFailed)
 }
 
 func (s *downStream) writeLog() {
@@ -263,6 +300,8 @@ func (s *downStream) OnResetStream(reason types.StreamResetReason) {
 func (s *downStream) ResetStream(reason types.StreamResetReason) {
 	s.proxy.stats.DownstreamRequestReset.Inc(1)
 	s.proxy.listenerStats.DownstreamRequestReset.Inc(1)
+	// we assume downstream client close the connection when timeout, we do not care about the network makes connection closed.
+	s.requestInfo.SetResponseCode(types.TimeoutExceptionCode)
 	s.cleanStream()
 }
 
@@ -734,7 +773,9 @@ func (s *downStream) onUpstreamRequestSent() {
 
 		// setup global timeout timer
 		if s.timeout.GlobalTimeout > 0 {
-			log.Proxy.Debugf(s.context, "[proxy] [downstream] start a request timeout timer")
+			if log.Proxy.GetLogLevel() >= log.DEBUG {
+				log.Proxy.Debugf(s.context, "[proxy] [downstream] start a request timeout timer")
+			}
 			if s.responseTimer != nil {
 				s.responseTimer.Stop()
 			}
@@ -743,6 +784,10 @@ func (s *downStream) onUpstreamRequestSent() {
 			s.responseTimer = utils.NewTimer(s.timeout.GlobalTimeout,
 				func() {
 					atomic.StoreUint32(&s.reuseBuffer, 0)
+
+					if s.downstreamRespHeaders != nil {
+						return
+					}
 
 					if atomic.LoadUint32(&s.downstreamCleaned) == 1 {
 						return
@@ -769,8 +814,10 @@ func (s *downStream) onResponseTimeout() {
 		if s.upstreamRequest.host != nil {
 			s.upstreamRequest.host.HostStats().UpstreamRequestTimeout.Inc(1)
 
-			log.Proxy.Errorf(s.context, "[proxy] [downstream] onResponseTimeout，host: %s, time: %s",
-				s.upstreamRequest.host.AddressString(), s.timeout.GlobalTimeout.String())
+			if log.Proxy.GetLogLevel() >= log.INFO {
+				log.Proxy.Infof(s.context, "[proxy] [downstream] onResponseTimeout，host: %s, time: %s",
+					s.upstreamRequest.host.AddressString(), s.timeout.GlobalTimeout.String())
+			}
 		}
 
 		s.upstreamRequest.resetStream()
@@ -790,6 +837,10 @@ func (s *downStream) setupPerReqTimeout() {
 		s.perRetryTimer = utils.NewTimer(timeout.TryTimeout,
 			func() {
 				atomic.StoreUint32(&s.reuseBuffer, 0)
+
+				if s.downstreamRespHeaders != nil {
+					return
+				}
 
 				if atomic.LoadUint32(&s.downstreamCleaned) == 1 {
 					return
@@ -817,6 +868,9 @@ func (s *downStream) onPerReqTimeout() {
 
 		if s.upstreamRequest.host != nil {
 			s.upstreamRequest.host.HostStats().UpstreamRequestTimeout.Inc(1)
+
+			log.Proxy.Errorf(s.context, "[proxy] [downstream] onPerReqTimeout，host: %s, time: %s",
+				s.upstreamRequest.host.AddressString(), s.timeout.TryTimeout.String())
 		}
 
 		s.upstreamRequest.resetStream()
@@ -1235,7 +1289,6 @@ func (s *downStream) AddStreamAccessLog(accessLog types.AccessLog) {
 }
 
 // types.LoadBalancerContext
-
 func (s *downStream) MetadataMatchCriteria() types.MetadataMatchCriteria {
 	if nil != s.requestInfo.RouteEntry() {
 		return s.requestInfo.RouteEntry().MetadataMatchCriteria(s.cluster.Name())
@@ -1327,13 +1380,13 @@ func (s *downStream) processError(id uint32) (phase types.Phase, err error) {
 	}
 
 	if atomic.LoadUint32(&s.upstreamReset) == 1 {
-		log.Proxy.Errorf(s.context, "[proxy] [downstream] processError=upstreamReset, proxyId: %d", s.ID)
+		log.Proxy.Infof(s.context, "[proxy] [downstream] processError=upstreamReset, proxyId: %d, reason: %+v", s.ID, s.resetReason)
 		s.onUpstreamReset(s.resetReason)
 		err = types.ErrExit
 	}
 
 	if atomic.LoadUint32(&s.downstreamReset) == 1 {
-		log.Proxy.Errorf(s.context, "[proxy] [downstream] processError=downstreamReset proxyId: %d", s.ID)
+		log.Proxy.Errorf(s.context, "[proxy] [downstream] processError=downstreamReset proxyId: %d, reason: %+v", s.ID, s.resetReason)
 		s.ResetStream(s.resetReason)
 		err = types.ErrExit
 		return

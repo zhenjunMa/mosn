@@ -41,6 +41,7 @@ import (
 // ResetServiceRegistryInfo
 // called when reset service registry info received
 func ResetServiceRegistryInfo(appInfo v2.ApplicationInfo, subServiceList []string) {
+	configLock.Lock()
 	// reset service info
 	config.ServiceRegistry.ServiceAppInfo = v2.ApplicationInfo{
 		AntShareCloud: appInfo.AntShareCloud,
@@ -54,6 +55,7 @@ func ResetServiceRegistryInfo(appInfo v2.ApplicationInfo, subServiceList []strin
 
 	// reset servicePubInfo
 	config.ServiceRegistry.ServicePubInfo = []v2.PublishInfo{}
+	configLock.Unlock()
 
 	// delete subInfo / dynamic clusters
 	RemoveClusterConfig(subServiceList)
@@ -67,6 +69,8 @@ func AddOrUpdateClusterConfig(clusters []v2.Cluster) {
 }
 
 func addOrUpdateClusterConfig(clusters []v2.Cluster) {
+	configLock.Lock()
+	defer configLock.Unlock()
 	for _, clusterConfig := range clusters {
 		exist := false
 
@@ -99,6 +103,8 @@ func RemoveClusterConfig(clusterNames []string) {
 }
 
 func removeClusterConfig(clusterNames []string) bool {
+	configLock.Lock()
+	defer configLock.Unlock()
 	dirty := false
 	for _, clusterName := range clusterNames {
 		for i, cluster := range config.ClusterManager.Clusters {
@@ -119,6 +125,8 @@ func removeClusterConfig(clusterNames []string) bool {
 // AddPubInfo
 // called when add pub info received
 func AddPubInfo(pubInfoAdded map[string]string) {
+	configLock.Lock()
+	defer configLock.Unlock()
 	for srvName, srvData := range pubInfoAdded {
 		exist := false
 		srvPubInfo := v2.PublishInfo{
@@ -147,6 +155,8 @@ func AddPubInfo(pubInfoAdded map[string]string) {
 // DelPubInfo
 // called when delete publish info received
 func DelPubInfo(serviceName string) {
+	configLock.Lock()
+	defer configLock.Unlock()
 	dirty := false
 
 	for i, srvPubInfo := range config.ServiceRegistry.ServicePubInfo {
@@ -180,13 +190,6 @@ func findListener(listenername string) (v2.Listener, int) {
 	return v2.Listener{}, -1
 }
 
-func updateListener(idx int, ln v2.Listener) {
-	listeners := config.Servers[0].Listeners
-	if idx < len(listeners) {
-		listeners[idx] = ln
-	}
-}
-
 // AddOrUpdateRouterConfig update the connection_manager's config
 func AddOrUpdateRouterConfig(listenername string, routerConfig *v2.RouterConfiguration) {
 	if addOrUpdateRouterConfig(listenername, routerConfig) {
@@ -218,6 +221,8 @@ func addOrUpdateStreamFilters(listenername string, typ string, cfg map[string]in
 	if idx == -1 {
 		return false
 	}
+	configLock.Lock()
+	defer configLock.Unlock()
 	filterIndex := -1
 	for i, sf := range ln.StreamFilters {
 		if sf.Type == typ {
@@ -231,7 +236,10 @@ func addOrUpdateStreamFilters(listenername string, typ string, cfg map[string]in
 	}
 	if filterIndex == -1 {
 		ln.StreamFilters = append(ln.StreamFilters, filter)
-		updateListener(idx, ln)
+		listeners := config.Servers[0].Listeners
+		if idx < len(listeners) {
+			listeners[idx] = ln
+		}
 	} else {
 		ln.StreamFilters[filterIndex] = filter
 	}
@@ -241,6 +249,8 @@ func addOrUpdateStreamFilters(listenername string, typ string, cfg map[string]in
 // AddMsgMeta
 // called when msg meta updated
 func AddMsgMeta(dataId, groupId string) {
+	configLock.Lock()
+	defer configLock.Unlock()
 	if config.ServiceRegistry.MsgMetaInfo == nil {
 		config.ServiceRegistry.MsgMetaInfo = make(map[string][]string)
 	}
@@ -269,6 +279,8 @@ func AddMsgMeta(dataId, groupId string) {
 // DelMsgMeta
 // called when delete msg meta received
 func DelMsgMeta(dataId string) {
+	configLock.Lock()
+	defer configLock.Unlock()
 	dirty := false
 
 	if _, ok := config.ServiceRegistry.MsgMetaInfo[dataId]; ok {
@@ -277,4 +289,75 @@ func DelMsgMeta(dataId string) {
 	}
 
 	dump(dirty)
+}
+
+// UpdateMqClientKey update mq client registry info
+func UpdateMqClientKey(id, clientKey string, remove bool) {
+	configLock.Lock()
+	defer configLock.Unlock()
+	if config.ServiceRegistry.MqClientKey == nil {
+		config.ServiceRegistry.MqClientKey = make(map[string]string)
+	}
+
+	if remove {
+		delete(config.ServiceRegistry.MqClientKey, id)
+	} else {
+		config.ServiceRegistry.MqClientKey[id] = clientKey
+	}
+
+	dump(true)
+}
+
+// UpdteMqMeta update mq meta info
+func UpdateMqMeta(topic, meta string, remove bool) {
+	configLock.Lock()
+	defer configLock.Unlock()
+	if config.ServiceRegistry.MqMeta == nil {
+		config.ServiceRegistry.MqMeta = make(map[string]string)
+	}
+
+	if remove {
+		delete(config.ServiceRegistry.MqMeta, topic)
+	} else {
+		config.ServiceRegistry.MqMeta[topic] = meta
+	}
+
+	dump(true)
+}
+
+// SetMqConsumers update topic consumer list
+func SetMqConsumers(key string, consumers []string) {
+	configLock.Lock()
+	defer configLock.Unlock()
+
+	if config.ServiceRegistry.MqConsumers == nil {
+		config.ServiceRegistry.MqConsumers = make(map[string][]string)
+	}
+
+	if len(key) != 0 {
+		if len(consumers) != 0 {
+			config.ServiceRegistry.MqConsumers[key] = consumers
+			return
+		}
+
+		delete(config.ServiceRegistry.MqConsumers, key)
+	}
+
+	dump(true)
+}
+
+// RmMqConsumers remove topic consumer list
+func RmMqConsumers(key string) {
+	configLock.Lock()
+	defer configLock.Unlock()
+	if config.ServiceRegistry.MqConsumers == nil {
+		config.ServiceRegistry.MqConsumers = make(map[string][]string)
+		return
+	}
+
+	if len(key) != 0 {
+		delete(config.ServiceRegistry.MqConsumers, key)
+	}
+
+	dump(true)
 }
