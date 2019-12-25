@@ -226,7 +226,7 @@ func (s *downStream) cleanStream() {
 func (s *downStream) writeLog() {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Proxy.Errorf(s.context, "[proxy] [downstream] writeLog panic %v, downstream %+v", r, s)
+			log.Proxy.Errorf(s.context, "[proxy] [downstream] writeLog panic %v, downstream %+v\n%s", r, s, debug.Stack())
 		}
 	}()
 
