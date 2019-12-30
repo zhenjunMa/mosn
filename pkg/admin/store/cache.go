@@ -1,6 +1,7 @@
 package store
 
 import (
+	"io/ioutil"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -10,15 +11,26 @@ import (
 	"mosn.io/mosn/pkg/utils"
 )
 
+var cacheLock sync.Mutex
+
+func ReadCacheConfig() ([]byte, error) {
+	cacheLock.Lock()
+	defer cacheLock.Unlock()
+	return ioutil.ReadFile(types.MosnCacheConfig)
+}
+
 func writeCacheConfig() {
 	if getCache() {
 		b, err := Dump()
 		if err != nil {
 			log.DefaultLogger.Alertf(types.ErrorKeyConfigDump, "dump cache config failed, caused by: "+err.Error())
 		}
+		cacheLock.Lock()
+		defer cacheLock.Unlock()
 		if err := utils.WriteFileSafety(types.MosnCacheConfig, b, 0644); err != nil {
 			log.DefaultLogger.Alertf(types.ErrorKeyConfigDump, "dump cache config failed, caused by: "+err.Error())
 		}
+		log.DefaultLogger.Warnf("dump new cache file success")
 	}
 }
 

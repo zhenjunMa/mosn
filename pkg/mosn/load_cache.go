@@ -2,7 +2,6 @@ package mosn
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"net"
 
 	"mosn.io/mosn/pkg/admin/store"
@@ -16,7 +15,7 @@ import (
 )
 
 func LoadCacheConfig(inheritListeners []net.Listener) {
-	b, err := ioutil.ReadFile(types.MosnCacheConfig)
+	b, err := store.ReadCacheConfig()
 	if err != nil {
 		log.DefaultLogger.Infof("load cache file failed, error: %v", err)
 		return
