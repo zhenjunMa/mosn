@@ -233,18 +233,14 @@ func (conn *clientStreamConnection) serve() {
 			log.Proxy.Infof(s.stream.ctx, "[stream] [http] receive response, requestId = %v", s.stream.id)
 		}
 
-		// 2. response processing
-		resetConn := false
-		if s.response.ConnectionClose() {
-			resetConn = true
-		}
 
-		// 3. local reset if header 'Connection: close' exists
-		if resetConn {
+		// 2. local reset if header 'Connection: close' exists
+		if s.response.ConnectionClose() {
 			// goaway the connpool
 			s.connection.streamConnectionEventListener.OnGoAway()
 		}
 
+		// 3. response processing
 		if atomic.LoadInt32(&s.readDisableCount) <= 0 {
 			s.handleResponse()
 		}
@@ -471,7 +467,7 @@ type clientStream struct {
 
 // types.StreamSender
 func (s *clientStream) AppendHeaders(context context.Context, headersIn types.HeaderMap, endStream bool) error {
-	headers := headersIn.(mosnhttp.RequestHeader)
+	headers := headersIn.Clone().(mosnhttp.RequestHeader)
 
 	// TODO: protocol convert in pkg/protocol
 	//if the request contains body, use "POST" as default, the http request method will be setted by MosnHeaderMethod
@@ -485,6 +481,9 @@ func (s *clientStream) AppendHeaders(context context.Context, headersIn types.He
 
 	// copy headers
 	headers.CopyTo(&s.request.Header)
+
+	// filter hop-by-hop headers
+	filterReqHopByHopHeaders(s.request)
 
 	if endStream {
 		s.endStream()
@@ -615,6 +614,8 @@ func (s *serverStream) AppendHeaders(context context.Context, headersIn types.He
 		}
 
 		headers.CopyTo(&s.response.Header)
+
+		filterRspHopByHopHeaders(s.response)
 	}
 
 	if endStream {
@@ -766,6 +767,18 @@ func removeInternalHeaders(headers mosnhttp.RequestHeader, remoteAddr net.Addr) 
 		headers.SetHost(host)
 	}
 
+}
+
+// filter hop-by-hop headers
+func filterReqHopByHopHeaders(request *fasthttp.Request) {
+	// Connection
+	request.Header.DelBytes(HKConnection)
+}
+
+// filter hop-by-hop headers
+func filterRspHopByHopHeaders(response *fasthttp.Response) {
+	// Connection
+	response.Header.DelBytes(HKConnection)
 }
 
 // contextManager

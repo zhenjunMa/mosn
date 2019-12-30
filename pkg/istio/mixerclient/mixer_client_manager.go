@@ -106,9 +106,13 @@ func (m *mixerClientManager) doReport(reportCluster string, attributes *v1.Attri
 }
 
 func (m *mixerClientManager) report(reportCluster string, attributes *v1.Attributes) {
-	m.reportInfoChan <- &reportInfo{
+	report := &reportInfo{
 		reportCluster: reportCluster,
 		attributes:    attributes,
+	}
+	select {
+	case m.reportInfoChan <- report:
+	default:
 	}
 }
 
