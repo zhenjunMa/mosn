@@ -26,9 +26,9 @@ import (
 	"time"
 	"unsafe"
 
-	"sofastack.io/sofa-mosn/pkg/server/keeper"
-	"sofastack.io/sofa-mosn/pkg/shm"
-	mosnlog "sofastack.io/sofa-mosn/pkg/log"
+	"mosn.io/mosn/pkg/server/keeper"
+	"mosn.io/mosn/pkg/shm"
+	mosnlog "mosn.io/mosn/pkg/log"
 )
 
 var (

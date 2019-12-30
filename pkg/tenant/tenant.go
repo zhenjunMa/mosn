@@ -2,9 +2,9 @@ package tenant
 
 import (
 	"strings"
-	"sofastack.io/sofa-mosn/pkg/log"
-	"sofastack.io/sofa-mosn/pkg/istio/control/http"
-	"sofastack.io/sofa-mosn/pkg/istio/mixerclient"
+	"mosn.io/mosn/pkg/log"
+	"mosn.io/mosn/pkg/istio/control/http"
+	"mosn.io/mosn/pkg/istio/mixerclient"
 )
 
 const (

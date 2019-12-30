@@ -27,7 +27,7 @@ import (
 
 	"github.com/envoyproxy/go-control-plane/envoy/api/v2/auth"
 	"istio.io/api/mixer/v1/config/client"
-	"sofastack.io/sofa-mosn/pkg/utils"
+	"mosn.io/mosn/pkg/utils"
 )
 
 // Metadata field can be used to provide additional information about the route.

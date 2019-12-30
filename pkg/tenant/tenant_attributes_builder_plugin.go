@@ -1,6 +1,6 @@
 package tenant
 
-import "sofastack.io/sofa-mosn/pkg/istio/utils"
+import "mosn.io/mosn/pkg/istio/utils"
 
 type attributesBuilderPlugin struct{}
 

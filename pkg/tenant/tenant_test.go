@@ -20,8 +20,8 @@ package tenant
 import (
 	"testing"
 	"reflect"
-	"sofastack.io/sofa-mosn/pkg/istio/mixerclient"
-	"sofastack.io/sofa-mosn/pkg/featuregate"
+	"mosn.io/mosn/pkg/istio/mixerclient"
+	"mosn.io/mosn/pkg/featuregate"
 )
 
 func TestInit(t *testing.T) {

@@ -20,12 +20,12 @@ package cluster
 import (
 	"sync/atomic"
 
-	v2 "sofastack.io/sofa-mosn/pkg/api/v2"
-	"sofastack.io/sofa-mosn/pkg/log"
-	"sofastack.io/sofa-mosn/pkg/mtls"
-	"sofastack.io/sofa-mosn/pkg/types"
-	"sofastack.io/sofa-mosn/pkg/upstream/healthcheck"
-	"sofastack.io/sofa-mosn/pkg/utils"
+	v2 "mosn.io/mosn/pkg/api/v2"
+	"mosn.io/mosn/pkg/log"
+	"mosn.io/mosn/pkg/mtls"
+	"mosn.io/mosn/pkg/types"
+	"mosn.io/mosn/pkg/upstream/healthcheck"
+	"mosn.io/mosn/pkg/utils"
 )
 
 func NewCluster(clusterConfig v2.Cluster) types.Cluster {

@@ -24,7 +24,7 @@ import (
 	"sync"
 
 	jsoniter "github.com/json-iterator/go"
-	"sofastack.io/sofa-mosn/pkg/api/v2"
+	"mosn.io/mosn/pkg/api/v2"
 )
 
 const (

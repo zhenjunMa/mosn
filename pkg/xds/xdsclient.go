@@ -32,10 +32,10 @@ import (
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/gogo/protobuf/types"
 	jsoniter "github.com/json-iterator/go"
-	"sofastack.io/sofa-mosn/pkg/config"
-	"sofastack.io/sofa-mosn/pkg/log"
-	typ "sofastack.io/sofa-mosn/pkg/types"
-	v2 "sofastack.io/sofa-mosn/pkg/xds/v2"
+	"mosn.io/mosn/pkg/config"
+	"mosn.io/mosn/pkg/log"
+	typ "mosn.io/mosn/pkg/types"
+	v2 "mosn.io/mosn/pkg/xds/v2"
 )
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary

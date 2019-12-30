@@ -21,12 +21,12 @@ import (
 	"time"
 	"fmt"
 	"strconv"
-	"sofastack.io/sofa-mosn/pkg/types"
-	"sofastack.io/sofa-mosn/pkg/log"
+	"mosn.io/mosn/pkg/types"
+	"mosn.io/mosn/pkg/log"
 	"strings"
-	"sofastack.io/sofa-mosn/pkg/buffer"
-	"sofastack.io/sofa-mosn/pkg/trace/sofa"
-	"sofastack.io/sofa-mosn/pkg/protocol"
+	"mosn.io/mosn/pkg/buffer"
+	"mosn.io/mosn/pkg/trace/sofa"
+	"mosn.io/mosn/pkg/protocol"
 )
 
 type SofaRPCSpan struct {

@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"sofastack.io/sofa-mosn/pkg/types"
+	"mosn.io/mosn/pkg/types"
 
 	google_protobuf1 "github.com/gogo/protobuf/types"
 	google_protobuf2 "github.com/gogo/protobuf/types"

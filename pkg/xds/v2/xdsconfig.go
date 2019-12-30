@@ -27,8 +27,8 @@ import (
 	"time"
 
 	"google.golang.org/grpc/keepalive"
-	"sofastack.io/sofa-mosn/pkg/featuregate"
-	"sofastack.io/sofa-mosn/pkg/log"
+	"mosn.io/mosn/pkg/featuregate"
+	"mosn.io/mosn/pkg/log"
 	xdsapi "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	envoy_api_v2_auth "github.com/envoyproxy/go-control-plane/envoy/api/v2/auth"
 	"github.com/envoyproxy/go-control-plane/envoy/api/v2/core"

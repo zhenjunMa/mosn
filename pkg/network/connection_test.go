@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"testing"
 
-	"sofastack.io/sofa-mosn/pkg/types"
+	"mosn.io/mosn/pkg/types"
 )
 
 type MyEventListener struct{}

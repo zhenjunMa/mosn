@@ -26,10 +26,10 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"istio.io/api/mixer/v1"
 
-	"sofastack.io/sofa-mosn/pkg/istio/control"
-	"sofastack.io/sofa-mosn/pkg/istio/utils"
-	"sofastack.io/sofa-mosn/pkg/log"
-	mosnhttp "sofastack.io/sofa-mosn/pkg/protocol/http"
+	"mosn.io/mosn/pkg/istio/control"
+	"mosn.io/mosn/pkg/istio/utils"
+	"mosn.io/mosn/pkg/log"
+	mosnhttp "mosn.io/mosn/pkg/protocol/http"
 )
 
 type attributesBuilder struct {

@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	_ "sofastack.io/sofa-mosn/pkg/filter/network/proxy"
-	_ "sofastack.io/sofa-mosn/pkg/filter/network/tcpproxy"
-	"sofastack.io/sofa-mosn/pkg/mosn"
-	"sofastack.io/sofa-mosn/pkg/protocol"
-	"sofastack.io/sofa-mosn/pkg/types"
-	"sofastack.io/sofa-mosn/test/util"
+	_ "mosn.io/mosn/pkg/filter/network/proxy"
+	_ "mosn.io/mosn/pkg/filter/network/tcpproxy"
+	"mosn.io/mosn/pkg/mosn"
+	"mosn.io/mosn/pkg/protocol"
+	"mosn.io/mosn/pkg/types"
+	"mosn.io/mosn/test/util"
 	"golang.org/x/net/http2"
 )
 
