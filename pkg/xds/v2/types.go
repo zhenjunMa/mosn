@@ -18,6 +18,7 @@
 package v2
 
 import (
+	"sync"
 	"time"
 
 	envoy_api_v2 "github.com/envoyproxy/go-control-plane/envoy/api/v2"
@@ -26,7 +27,7 @@ import (
 	ads "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v2"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"sofastack.io/sofa-mosn/pkg/config"
+	"mosn.io/mosn/pkg/config"
 )
 
 // XDSConfig contains ADS config and clusters info
@@ -53,12 +54,13 @@ type ADSConfig struct {
 
 // ADSClient communicated with pilot
 type ADSClient struct {
-	AdsConfig       *ADSConfig
-	StreamClient    ads.AggregatedDiscoveryService_StreamAggregatedResourcesClient
-	MosnConfig      *config.MOSNConfig
-	SendControlChan chan int
-	RecvControlChan chan int
-	StopChan        chan int
+	AdsConfig         *ADSConfig
+	StreamClientMutex sync.RWMutex
+	StreamClient      ads.AggregatedDiscoveryService_StreamAggregatedResourcesClient
+	MosnConfig        *config.MOSNConfig
+	SendControlChan   chan int
+	RecvControlChan   chan int
+	StopChan          chan int
 }
 
 // ServiceConfig for grpc service

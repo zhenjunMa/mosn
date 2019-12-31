@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	apicluster "github.com/envoyproxy/go-control-plane/envoy/api/v2/cluster"
@@ -32,9 +33,9 @@ import (
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/gogo/protobuf/types"
 	jsoniter "github.com/json-iterator/go"
-	"sofastack.io/sofa-mosn/pkg/config"
-	"sofastack.io/sofa-mosn/pkg/log"
-	v2 "sofastack.io/sofa-mosn/pkg/xds/v2"
+	"mosn.io/mosn/pkg/config"
+	"mosn.io/mosn/pkg/log"
+	v2 "mosn.io/mosn/pkg/xds/v2"
 )
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
@@ -97,7 +98,7 @@ func UnmarshalResources(config *config.MOSNConfig) (dynamicResources *bootstrap.
 
 			err = jsonpb.UnmarshalString(string(b), dynamicResources)
 			if err != nil {
-				log.DefaultLogger.Errorf("fail to marshal dynamic_resources: %v", err)
+				log.DefaultLogger.Errorf("fail to unmarshal dynamic_resources: %v", err)
 				return nil, nil, err
 			}
 			err = dynamicResources.Validate()
@@ -200,12 +201,13 @@ func (c *Client) Start(config *config.MOSNConfig) error {
 	sendControlChan := make(chan int)
 	recvControlChan := make(chan int)
 	adsClient := &v2.ADSClient{
-		AdsConfig:       xdsConfig.ADSConfig,
-		StreamClient:    nil,
-		MosnConfig:      config,
-		SendControlChan: sendControlChan,
-		RecvControlChan: recvControlChan,
-		StopChan:        stopChan,
+		AdsConfig:         xdsConfig.ADSConfig,
+		StreamClientMutex: sync.RWMutex{},
+		StreamClient:      nil,
+		MosnConfig:        config,
+		SendControlChan:   sendControlChan,
+		RecvControlChan:   recvControlChan,
+		StopChan:          stopChan,
 	}
 	adsClient.Start()
 	c.adsClient = adsClient

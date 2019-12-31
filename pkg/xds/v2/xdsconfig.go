@@ -34,8 +34,8 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-	"sofastack.io/sofa-mosn/pkg/featuregate"
-	"sofastack.io/sofa-mosn/pkg/log"
+	"mosn.io/mosn/pkg/featuregate"
+	"mosn.io/mosn/pkg/log"
 )
 
 //  Init parsed ds and clusters config for xds
@@ -202,7 +202,7 @@ func (c *ADSConfig) GetStreamClient() ads.AggregatedDiscoveryService_StreamAggre
 		return nil
 	}
 
-	if tlsContext == nil || !featuregate.DefaultFeatureGate.Enabled(featuregate.XdsMtlsEnable) {
+	if tlsContext == nil || !featuregate.Enabled(featuregate.XdsMtlsEnable) {
 		conn, err := grpc.Dial(endpoint, grpc.WithInsecure())
 		if err != nil {
 			log.DefaultLogger.Errorf("did not connect: %v", err)

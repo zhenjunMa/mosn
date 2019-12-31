@@ -39,15 +39,15 @@ import (
 	"github.com/gogo/protobuf/types"
 	"github.com/golang/protobuf/jsonpb"
 	"istio.io/api/mixer/v1/config/client"
-	"sofastack.io/sofa-mosn/pkg/api/v2"
-	"sofastack.io/sofa-mosn/pkg/config"
-	"sofastack.io/sofa-mosn/pkg/featuregate"
-	"sofastack.io/sofa-mosn/pkg/log"
-	"sofastack.io/sofa-mosn/pkg/protocol"
-	"sofastack.io/sofa-mosn/pkg/router"
-	payloadlimit "sofastack.io/sofa-mosn/pkg/xds/model/filter/http/payloadlimit/v2"
-	xdsxproxy "sofastack.io/sofa-mosn/pkg/xds/model/filter/network/x_proxy/v2"
-	"sofastack.io/sofa-mosn/pkg/xds/v2/rds"
+	"mosn.io/mosn/pkg/api/v2"
+	"mosn.io/mosn/pkg/config"
+	"mosn.io/mosn/pkg/featuregate"
+	"mosn.io/mosn/pkg/log"
+	"mosn.io/mosn/pkg/protocol"
+	"mosn.io/mosn/pkg/router"
+	payloadlimit "mosn.io/mosn/pkg/xds/model/filter/http/payloadlimit/v2"
+	xdsxproxy "mosn.io/mosn/pkg/xds/model/filter/network/x_proxy/v2"
+	"mosn.io/mosn/pkg/xds/v2/rds"
 )
 
 // support network filter list
@@ -315,7 +315,7 @@ func convertStreamFilter(name string, s *types.Struct) v2.Filter {
 			}
 		}
 	case MosnPayloadLimit:
-		if featuregate.DefaultFeatureGate.Enabled(featuregate.PayLoadLimitEnable) {
+		if featuregate.Enabled(featuregate.PayLoadLimitEnable) {
 			filter.Type = v2.PayloadLimit
 			if s == nil {
 				payloadLimitInject := &v2.StreamPayloadLimit{}
@@ -705,7 +705,7 @@ func convertPerRouteConfig(xdsPerRouteConfig map[string]*types.Struct) map[strin
 			log.DefaultLogger.Debugf("add a fault inject stream filter in router")
 			perRouteConfig[v2.FaultStream] = cfg
 		case v2.PayloadLimit:
-			if featuregate.DefaultFeatureGate.Enabled(featuregate.PayLoadLimitEnable) {
+			if featuregate.Enabled(featuregate.PayLoadLimitEnable) {
 				cfg, err := convertStreamPayloadLimitConfig(config)
 				if err != nil {
 					log.DefaultLogger.Infof("convertPerRouteConfig[%s] error: %v", v2.PayloadLimit, err)
