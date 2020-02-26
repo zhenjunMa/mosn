@@ -109,6 +109,7 @@ type connection struct {
 
 // NewServerConnection new server-side connection, rawc is the raw connection from go/net
 func NewServerConnection(ctx context.Context, rawc net.Conn, stopChan chan struct{}) api.Connection {
+	//连接id
 	id := atomic.AddUint64(&idCounter, 1)
 
 	conn := &connection{
@@ -237,6 +238,7 @@ func (c *connection) checkUseWriteLoop() bool {
 	if !ok {
 		return false
 	}
+	//TODO 什么是loop back address？为什么只有在这种情况下才需要处理写请求
 	if tcpAddr.IP.IsLoopback() {
 		log.DefaultLogger.Debugf("[network] [check use writeloop] Connection = %d, Local Address = %+v, Remote Address = %+v",
 			c.id, c.rawConnection.LocalAddr(), c.RemoteAddr())
@@ -245,10 +247,12 @@ func (c *connection) checkUseWriteLoop() bool {
 	return false
 }
 
+//一个连接对应两个线程，分别处理读写请求
 func (c *connection) startRWLoop(lctx context.Context) {
 	c.internalLoopStarted = true
 
 	utils.GoWithRecover(func() {
+		//处理该连接上面的读请求
 		c.startReadLoop()
 	}, func(r interface{}) {
 		c.Close(api.NoFlush, api.LocalClose)
@@ -257,6 +261,7 @@ func (c *connection) startRWLoop(lctx context.Context) {
 	if c.checkUseWriteLoop() {
 		c.useWriteLoop = true
 		utils.GoWithRecover(func() {
+			//处理该连接上面的写请求
 			c.startWriteLoop()
 		}, func(r interface{}) {
 			c.Close(api.NoFlush, api.LocalClose)
@@ -330,8 +335,7 @@ func (c *connection) startReadLoop() {
 				} else {
 					// set a long time, not transfer connection, wait mosn exit.
 					transferTime = time.Now().Add(10 * TransferTimeout)
-					log.DefaultLogger.Infof("[network] [read loop] not support transfer connection, Connection = %d, Local Address = %+v, Remote Address = %+v",
-						c.id, c.rawConnection.LocalAddr(), c.RemoteAddr())
+					log.DefaultLogger.Infof("[network] [read loop] not support transfer connection, Connection = %d, Local Address = %+v, Remote Address = %+v", c.id, c.rawConnection.LocalAddr(), c.RemoteAddr())
 				}
 			} else {
 				if transferTime.Before(time.Now()) {
@@ -347,7 +351,8 @@ func (c *connection) startReadLoop() {
 			return
 		case <-c.readEnabledChan:
 		default:
-			if c.readEnabled {
+			if c.readEnabled { //readEnabled 默认为true
+				//读取数据
 				err := c.doRead()
 				if err != nil {
 					if te, ok := err.(net.Error); ok && te.Timeout() {
@@ -428,6 +433,7 @@ func (c *connection) doRead() (err error) {
 
 	var bytesRead int64
 
+	//从连接中读取数据，返回实际读取到的字节数
 	bytesRead, err = c.readBuffer.ReadOnce(c.rawConnection)
 
 	if err != nil {
@@ -447,16 +453,20 @@ func (c *connection) doRead() (err error) {
 	}
 
 	//todo: ReadOnce maybe always return (0, nil) and causes dead loop (hack)
+	//没有读取到数据，也没有报错
 	if bytesRead == 0 && err == nil {
 		err = io.EOF
 		log.DefaultLogger.Errorf("[network] ReadOnce maybe always return (0, nil) and causes dead loop, Connection = %d, Local Address = %+v, Remote Address = %+v",
 			c.id, c.rawConnection.LocalAddr(), c.RemoteAddr())
 	}
 
+	//进行读取字节函数的回调
 	for _, cb := range c.bytesReadCallbacks {
 		cb(uint64(bytesRead))
 	}
 
+	//通知读取到了新的数据，在连接上读取到数据以后，往上层通知
+	//network层回调
 	c.onRead()
 	c.updateReadBufStats(bytesRead, int64(c.readBuffer.Len()))
 	return
@@ -480,14 +490,16 @@ func (c *connection) updateReadBufStats(bytesRead int64, bytesBufSize int64) {
 }
 
 func (c *connection) onRead() {
+	//不再可读，这里可能跟热升级有关？
 	if !c.readEnabled {
 		return
 	}
-
+	//没有需要处理的数据
 	if c.readBuffer.Len() == 0 {
 		return
 	}
 
+	//filterManager过滤器管理者，把读取到的数据交给过滤器链路进行处理
 	c.filterManager.OnRead()
 }
 

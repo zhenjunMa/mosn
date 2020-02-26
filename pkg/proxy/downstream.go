@@ -123,6 +123,7 @@ func newActiveStream(ctx context.Context, proxy *proxy, responseSender types.Str
 		ctx = mosnctx.WithValue(ctx, types.ContextKeyTraceSpanKey, &trace.SpanKey{TraceId: span.TraceId(), SpanId: span.SpanId()})
 	}
 
+	//从对象池中选一个
 	proxyBuffers := proxyBuffersByContext(ctx)
 
 	stream := &proxyBuffers.stream
@@ -319,6 +320,7 @@ func (s *downStream) OnDestroyStream() {}
 
 // types.StreamReceiveListener
 func (s *downStream) OnReceive(ctx context.Context, headers types.HeaderMap, data types.IoBuffer, trailers types.HeaderMap) {
+	//head body trailer
 	s.downstreamReqHeaders = headers
 	if data != nil {
 		s.downstreamReqDataBuf = data.Clone()
@@ -344,6 +346,7 @@ func (s *downStream) OnReceive(ctx context.Context, headers types.HeaderMap, dat
 			}
 		}()
 
+		//只要没有End就循环10次？
 		phase := types.InitPhase
 		for i := 0; i < 10; i++ {
 			s.cleanNotify()
@@ -485,6 +488,7 @@ func (s *downStream) receive(ctx context.Context, id uint32, phase types.Phase) 
 			if log.Proxy.GetLogLevel() >= log.DEBUG {
 				log.Proxy.Debugf(s.context, "[proxy] [downstream] enter phase %d, proxyId = %d  ", phase, id)
 			}
+			//这里阻塞？
 			if p, err := s.waitNotify(id); err != nil {
 				return p
 			}
@@ -675,6 +679,7 @@ func (s *downStream) receiveHeaders(endStream bool) {
 	s.cluster = s.snapshot.ClusterInfo()
 	s.requestInfo.SetRouteEntry(s.route.RouteRule())
 
+	//初始化连接池
 	pool, err := s.initializeUpstreamConnectionPool(s)
 	if err != nil {
 		log.Proxy.Alertf(s.context, types.ErrorKeyUpstreamConn, "initialize Upstream Connection Pool error, request can't be proxyed, error = %v", err)
@@ -693,6 +698,7 @@ func (s *downStream) receiveHeaders(endStream bool) {
 	s.retryState = newRetryState(s.route.RouteRule().Policy().RetryPolicy(), s.downstreamReqHeaders, s.cluster, prot)
 
 	//Build Request
+	//构建upstreamRequest
 	proxyBuffers := proxyBuffersByContext(s.context)
 	s.upstreamRequest = &proxyBuffers.request
 	s.upstreamRequest.downStream = s
@@ -702,8 +708,10 @@ func (s *downStream) receiveHeaders(endStream bool) {
 	s.route.RouteRule().FinalizeRequestHeaders(s.downstreamReqHeaders, s.requestInfo)
 
 	//Call upstream's append header method to build upstream's request
+	//这里发送数据
 	s.upstreamRequest.appendHeaders(endStream)
 
+	//这里开始超时计时器
 	if endStream {
 		s.onUpstreamRequestSent()
 	}
@@ -1374,6 +1382,7 @@ func (s *downStream) waitNotify(id uint32) (phase types.Phase, err error) {
 	if log.Proxy.GetLogLevel() >= log.DEBUG {
 		log.Proxy.Debugf(s.context, "[proxy] [downstream] waitNotify begin %p, proxyId = %d", s, s.ID)
 	}
+	//阻塞等待
 	select {
 	case <-s.notify:
 	}

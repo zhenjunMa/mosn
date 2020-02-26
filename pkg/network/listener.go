@@ -124,6 +124,7 @@ func (l *listener) Start(lctx context.Context, restart bool) {
 				// try start listener
 				//call listen if not inherit
 				if l.rawl == nil {
+					//开始监听指定端口
 					if err := l.listen(lctx); err != nil {
 						// TODO: notify listener callbacks
 						log.StartLogger.Fatalf("[network] [listener start] [listen] %s listen failed, %v", l.name, err)
@@ -138,6 +139,7 @@ func (l *listener) Start(lctx context.Context, restart bool) {
 		}
 
 		for {
+			//死循环接收连接
 			if err := l.accept(lctx); err != nil {
 				if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
 					log.DefaultLogger.Infof("[network] [listener start] [accept] listener %s stop accepting connections by deadline", l.name)
@@ -227,6 +229,7 @@ func (l *listener) listen(lctx context.Context) error {
 }
 
 func (l *listener) accept(lctx context.Context) error {
+	//rawl是go原生的listener
 	rawc, err := l.rawl.Accept()
 
 	if err != nil {
@@ -234,7 +237,9 @@ func (l *listener) accept(lctx context.Context) error {
 	}
 
 	// TODO: use thread pool
+	//为每个连接创建一个线程进行处理
 	utils.GoWithRecover(func() {
+		//有新的连接进来，回调OnAccept函数，或者说发送accept事件
 		l.cb.OnAccept(rawc, l.useOriginalDst, nil, nil, nil)
 	}, nil)
 

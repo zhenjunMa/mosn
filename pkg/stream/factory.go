@@ -34,8 +34,7 @@ func Register(prot types.Protocol, factory ProtocolStreamFactory) {
 	streamFactories[prot] = factory
 }
 
-func CreateServerStreamConnection(context context.Context, prot types.Protocol, connection api.Connection,
-	callbacks types.ServerStreamConnectionEventListener) types.ServerStreamConnection {
+func CreateServerStreamConnection(context context.Context, prot types.Protocol, connection api.Connection, callbacks types.ServerStreamConnectionEventListener) types.ServerStreamConnection {
 
 	if ssc, ok := streamFactories[prot]; ok {
 		return ssc.CreateServerStream(context, connection, callbacks)

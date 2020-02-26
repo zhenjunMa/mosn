@@ -29,6 +29,7 @@ import (
 // Servers contains the listener, filter and so on
 // ClusterManager used to manage the upstream
 type MOSNConfig struct {
+	//example包里的sofa对应的config.json文件只包含了Servers，ClusterManager
 	Servers         []ServerConfig       `json:"servers,omitempty"`         //server config
 	ClusterManager  ClusterManagerConfig `json:"cluster_manager,omitempty"` //cluster config
 	ServiceRegistry ServiceRegistryInfo  `json:"service_registry"`          //service registry config, used by service discovery module
@@ -88,6 +89,7 @@ const (
 func (c *MOSNConfig) Mode() Mode {
 	if len(c.Servers) > 0 {
 		if len(c.RawStaticResources) == 0 || len(c.RawDynamicResources) == 0 {
+			//以配置文件的形式启动
 			return File
 		}
 

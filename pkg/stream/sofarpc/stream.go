@@ -63,13 +63,11 @@ func init() {
 
 type streamConnFactory struct{}
 
-func (f *streamConnFactory) CreateClientStream(context context.Context, connection types.ClientConnection,
-	clientCallbacks types.StreamConnectionEventListener, connCallbacks api.ConnectionEventListener) types.ClientStreamConnection {
+func (f *streamConnFactory) CreateClientStream(context context.Context, connection types.ClientConnection, clientCallbacks types.StreamConnectionEventListener, connCallbacks api.ConnectionEventListener) types.ClientStreamConnection {
 	return newStreamConnection(context, connection, clientCallbacks, nil)
 }
 
-func (f *streamConnFactory) CreateServerStream(context context.Context, connection api.Connection,
-	serverCallbacks types.ServerStreamConnectionEventListener) types.ServerStreamConnection {
+func (f *streamConnFactory) CreateServerStream(context context.Context, connection api.Connection, serverCallbacks types.ServerStreamConnectionEventListener) types.ServerStreamConnection {
 	return newStreamConnection(context, connection, nil, serverCallbacks)
 }
 
@@ -99,8 +97,7 @@ type streamConnection struct {
 	serverStreamConnectionEventListener types.ServerStreamConnectionEventListener
 }
 
-func newStreamConnection(ctx context.Context, connection api.Connection, clientCallbacks types.StreamConnectionEventListener,
-	serverCallbacks types.ServerStreamConnectionEventListener) types.ClientStreamConnection {
+func newStreamConnection(ctx context.Context, connection api.Connection, clientCallbacks types.StreamConnectionEventListener, serverCallbacks types.ServerStreamConnectionEventListener) types.ClientStreamConnection {
 
 	sc := &streamConnection{
 		ctx:                                 ctx,
@@ -134,8 +131,10 @@ func (conn *streamConnection) Dispatch(buf types.IoBuffer) {
 
 		// 2. decode process
 		// TODO: maybe pass sub protocol type
+		//解码数据(没有解析body)
 		cmd, err := conn.codecEngine.Decode(ctx, buf)
 		// No enough data
+		//如果没有报错且没有解析成功，那就说明当前收到的数据不够解码，推出循环，等待更多数据到来
 		if cmd == nil && err == nil {
 			break
 		}
@@ -143,6 +142,7 @@ func (conn *streamConnection) Dispatch(buf types.IoBuffer) {
 			var data []byte
 			if buf != nil {
 				data = buf.Bytes()
+				//这是只打印前50个字节的数据
 				if len(data) > 50 {
 					data = data[:50]
 				}
@@ -151,6 +151,8 @@ func (conn *streamConnection) Dispatch(buf types.IoBuffer) {
 		}
 
 		// Do handle staff. Error would also be passed to this function.
+		//解码成功以后，开始处理该请求
+		//解码之前是不能并发的，不然数据都乱了，解码之后可以引入多线程提高吞吐量
 		conn.handleCommand(ctx, cmd, err)
 		if err != nil {
 			break
@@ -211,8 +213,10 @@ func (conn *streamConnection) NewStream(ctx context.Context, receiver types.Stre
 	stream.sc = conn
 	stream.receiver = receiver
 
+	//oneway的请求不需要处理结果
 	if stream.receiver != nil {
 		conn.mutex.Lock()
+		//按照id放进map
 		conn.streams[stream.id] = stream
 		conn.mutex.Unlock()
 	}
@@ -241,6 +245,7 @@ func (conn *streamConnection) handleCommand(ctx context.Context, model interface
 		timeout := strconv.Itoa(timeoutInt) // timeout, ms
 		cmd.Set(types.HeaderGlobalTimeout, timeout)
 
+		//调用端的请求，这里对应的是downstream
 		stream.receiver.OnReceive(stream.ctx, cmd, cmd.Data(), nil)
 	}
 }
@@ -290,6 +295,7 @@ func (conn *streamConnection) processStream(ctx context.Context, cmd sofarpc.Sof
 }
 
 func (conn *streamConnection) onNewStreamDetect(ctx context.Context, cmd sofarpc.SofaRpcCmd, span types.Span) *stream {
+	//每个请求新建一个stream
 	buffers := sofaBuffersByContext(ctx)
 	stream := &buffers.server
 
@@ -298,6 +304,7 @@ func (conn *streamConnection) onNewStreamDetect(ctx context.Context, cmd sofarpc
 	stream.ctx = mosnctx.WithValue(ctx, types.ContextKeyStreamID, stream.id)
 	stream.ctx = mosnctx.WithValue(ctx, types.ContextSubProtocol, cmd.ProtocolCode())
 	stream.ctx = conn.contextManager.InjectTrace(stream.ctx, span)
+	//server
 	stream.direction = ServerStream
 	stream.sc = conn
 
@@ -308,6 +315,7 @@ func (conn *streamConnection) onNewStreamDetect(ctx context.Context, cmd sofarpc
 	if cmd.CommandType() == sofarpc.REQUEST_ONEWAY {
 		stream.receiver = conn.serverStreamConnectionEventListener.NewStreamDetect(stream.ctx, nil, span)
 	} else {
+		//receiver也是一个新的stream
 		stream.receiver = conn.serverStreamConnectionEventListener.NewStreamDetect(stream.ctx, stream, span)
 	}
 
@@ -321,6 +329,7 @@ func (conn *streamConnection) onStreamRecv(ctx context.Context, cmd sofarpc.Sofa
 	conn.mutex.Lock()
 	defer conn.mutex.Unlock()
 
+	//通过requestID找到对应的阻塞的stream
 	if stream, ok := conn.streams[requestID]; ok {
 		delete(conn.streams, requestID)
 
@@ -386,6 +395,7 @@ func (s *stream) AppendHeaders(ctx context.Context, headers types.HeaderMap, end
 			// use origin response from upstream
 			s.sendCmd = cmd
 		case sofarpc.REQUEST, sofarpc.REQUEST_ONEWAY:
+			//服务端发给调用端的数据
 			// the command type is request, indicates the invocation is under hijack scene
 			s.sendCmd, err = s.buildHijackResp(cmd)
 		}
@@ -457,6 +467,7 @@ func (s *stream) endStream() {
 		s.sendCmd.Del(types.HeaderGlobalTimeout)
 
 		// TODO: replaced with EncodeTo, and pre-alloc send buf
+		//编码
 		buf, err := s.sc.codecEngine.Encode(s.ctx, s.sendCmd)
 		if err != nil {
 			log.Proxy.Errorf(s.ctx, "[stream] [sofarpc] %s encode error:%s", directionText[s.direction], err.Error())
@@ -464,6 +475,7 @@ func (s *stream) endStream() {
 			return
 		}
 
+		//这里相当于是上面的编码只编码的头部，如果有body那就一起发送？
 		if dataBuf := s.sendCmd.Data(); dataBuf != nil {
 			err = s.sc.conn.Write(buf, dataBuf)
 		} else {
@@ -474,6 +486,7 @@ func (s *stream) endStream() {
 			log.Proxy.Debugf(s.ctx, "[stream] [sofarpc] send %s, requestId = %v", directionText[s.direction], s.id)
 		}
 
+		//错误处理
 		if err != nil {
 			log.Proxy.Errorf(s.ctx, "[stream] [sofarpc] requestId = %v, error = %v", s.id, err)
 			if err == types.ErrConnectionHasClosed {

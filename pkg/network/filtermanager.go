@@ -82,6 +82,7 @@ func (fm *filterManager) onContinueReading(filter *activeReadFilter) {
 		index = filter.index + 1
 	}
 
+	//过滤器链路处理
 	for ; index < len(fm.upstreamFilters); index++ {
 		uf = fm.upstreamFilters[index]
 		uf.index = index
@@ -96,9 +97,11 @@ func (fm *filterManager) onContinueReading(filter *activeReadFilter) {
 			}
 		}
 
+		//conn, fm互相引用
 		buf := fm.conn.GetReadBuffer()
 
 		if buf != nil && buf.Len() > 0 {
+			//通知过滤器进行处理
 			status := uf.filter.OnData(buf)
 
 			if status == api.Stop {

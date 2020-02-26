@@ -6,10 +6,10 @@ import (
 	"net"
 	"time"
 
-	"mosn.io/mosn/pkg/buffer"
 	"mosn.io/mosn/pkg/protocol/rpc/sofarpc"
 	"mosn.io/mosn/pkg/protocol/rpc/sofarpc/codec"
 	"mosn.io/mosn/pkg/types"
+	"mosn.io/pkg/buffer"
 )
 
 type SofaRPCServer struct {
@@ -48,6 +48,7 @@ func (s *SofaRPCServer) Serve(conn net.Conn) {
 		if bytesRead > 0 {
 			iobuf.Write(buf[:bytesRead])
 			for iobuf.Len() > 1 {
+				//解码
 				cmd, _ := codec.BoltCodec.Decode(nil, iobuf)
 				if cmd == nil {
 					break
@@ -62,9 +63,11 @@ func (s *SofaRPCServer) Serve(conn net.Conn) {
 						iobufresp, err = codec.BoltCodec.Encode(context.Background(), hbAck)
 						fmt.Printf("[RPC Server] reponse heart beat, requestId: %d\n", req.RequestID())
 					case sofarpc.RPC_REQUEST:
+						//构建响应
 						resp := buildBoltV1Response(req)
+						//编码
 						iobufresp, err = codec.BoltCodec.Encode(nil, resp)
-						fmt.Printf("[RPC Server] reponse connection: %s, requestId: %d\n", conn.RemoteAddr().String(), req.RequestID())
+						//fmt.Printf("[RPC Server] reponse connection: %s, requestId: %d\n", conn.RemoteAddr().String(), req.RequestID())
 					}
 					if err != nil {
 						fmt.Printf("[RPC Server] build response error: %v\n", err)
@@ -90,7 +93,6 @@ func buildBoltV1Response(req *sofarpc.BoltRequest) *sofarpc.BoltResponse {
 		HeaderLen:      req.HeaderLen,
 		HeaderMap:      req.HeaderMap,
 	}
-
 }
 
 func main() {

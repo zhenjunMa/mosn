@@ -106,7 +106,6 @@ func NewMosn(c *v2.MOSNConfig) *Mosn {
 			if !c.ClusterManager.AutoDiscovery {
 				log.StartLogger.Fatalf("[mosn] [NewMosn] no cluster found and cluster manager doesn't support auto discovery")
 			}
-
 		}
 	}
 
@@ -133,12 +132,14 @@ func NewMosn(c *v2.MOSNConfig) *Mosn {
 	// initialize the routerManager
 	m.routerManager = router.NewRouterManager()
 
+	//根据配置初始化对象
 	for _, serverConfig := range c.Servers {
 		//1. server config prepare
 		//server config
 		c := configmanager.ParseServerConfig(&serverConfig)
 
 		// new server config
+		// ServerConfig -> Config
 		sc := server.NewConfig(c)
 
 		// init default log

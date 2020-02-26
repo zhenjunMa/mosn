@@ -163,10 +163,13 @@ func (p *workerPool) spawnWorker(task func()) {
 		if r := recover(); r != nil {
 			log.DefaultLogger.Errorf("[syncpool] panic %v\n%s", p, string(debug.Stack()))
 		}
+		//整个函数退出时，协程数量减1，后面可以再创建出来
 		<-p.sem
 	}()
 	for {
+		//执行任务
 		task()
+		//如果还有任务等待执行，则循环执行任务，否则等待
 		task = <-p.work
 	}
 }

@@ -123,6 +123,7 @@ func (r *upstreamRequest) OnReceive(ctx context.Context, headers types.HeaderMap
 		log.Proxy.Debugf(r.downStream.context, "[proxy] [upstream] OnReceive headers: %+v, data: %+v, trailers: %+v", headers, data, trailers)
 	}
 
+	//唤醒downstream
 	r.downStream.sendNotify()
 }
 

@@ -58,9 +58,11 @@ func init() {
 func initWorkerPool(data interface{}, endParsing bool) error {
 	initGlobalStats()
 
+	//线程池大小=核数*256
 	poolSize := runtime.NumCPU() * 256
 
 	// set poolSize equal to processor if it was specified
+	//可以自定义修改poolSize
 	if pNum, ok := data.(int); ok && pNum > 0 {
 		poolSize = pNum * 256
 	}
@@ -154,6 +156,7 @@ func (p *proxy) OnData(buf buffer.IoBuffer) api.FilterStatus {
 		log.DefaultLogger.Debugf("[proxy] Protoctol Auto: %v", protocol)
 		p.serverStreamConn = stream.CreateServerStreamConnection(p.context, protocol, p.readCallbacks.Connection(), p)
 	}
+	//把数据分发到对应协议的的解码器
 	p.serverStreamConn.Dispatch(buf)
 
 	return api.Stop
@@ -208,6 +211,7 @@ func (p *proxy) InitializeReadFilterCallbacks(cb api.ReadFilterCallbacks) {
 func (p *proxy) OnGoAway() {}
 
 func (p *proxy) NewStreamDetect(ctx context.Context, responseSender types.StreamSender, span types.Span) types.StreamReceiveListener {
+	//每个请求对应一个stream
 	stream := newActiveStream(ctx, p, responseSender, span)
 
 	if value := mosnctx.Get(p.context, types.ContextKeyStreamFilterChainFactories); value != nil {

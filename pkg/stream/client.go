@@ -54,8 +54,10 @@ func NewStreamClient(ctx context.Context, prot types.Protocol, connection types.
 		return nil
 	}
 
+	//listener跟filter都是stream
 	connection.AddConnectionEventListener(client)
 	connection.FilterManager().AddReadFilter(client)
+
 	connection.SetNoDelay(true)
 
 	return client

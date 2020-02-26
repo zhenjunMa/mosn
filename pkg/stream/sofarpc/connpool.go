@@ -116,8 +116,7 @@ func (p *connPool) Protocol() types.Protocol {
 	return protocol.SofaRPC
 }
 
-func (p *connPool) NewStream(ctx context.Context,
-	responseDecoder types.StreamReceiveListener, listener types.PoolEventListener) {
+func (p *connPool) NewStream(ctx context.Context, responseDecoder types.StreamReceiveListener, listener types.PoolEventListener) {
 	subProtocol := getSubProtocol(ctx)
 
 	client, _ := p.activeClients.Load(subProtocol)
@@ -147,6 +146,7 @@ func (p *connPool) NewStream(ctx context.Context,
 		if responseDecoder == nil {
 			streamEncoder = activeClient.client.NewStream(ctx, nil)
 		} else {
+			//这里会把streamId对应的stream保存起来
 			streamEncoder = activeClient.client.NewStream(ctx, responseDecoder)
 			streamEncoder.GetStream().AddEventListener(activeClient)
 

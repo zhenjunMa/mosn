@@ -400,6 +400,7 @@ func (al *activeListener) OnAccept(rawc net.Conn, useOriginalDst bool, oriRemote
 		if network.UseNetpollMode {
 			// store fd for further usage
 			if tc, ok := rawc.(*net.TCPConn); ok {
+				//该连接对应的文件描述符
 				rawf, _ = tc.File()
 			}
 		}
@@ -417,6 +418,7 @@ func (al *activeListener) OnAccept(rawc net.Conn, useOriginalDst bool, oriRemote
 		}
 	}
 
+	//针对go原生的连接进行封装
 	arc := newActiveRawConn(rawc, al)
 	// TODO: create listener filter chain
 
