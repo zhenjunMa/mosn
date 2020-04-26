@@ -20,6 +20,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"mosn.io/api"
 	"mosn.io/mosn/pkg/network"
@@ -31,8 +32,10 @@ type mockHost struct {
 	name       string
 	addr       string
 	meta       api.Metadata
-	healthFlag uint64
+	healthFlag *uint64
 	types.Host
+	stats  types.HostStats
+	weight uint32
 }
 
 func (h *mockHost) Hostname() string {
@@ -48,19 +51,34 @@ func (h *mockHost) Metadata() api.Metadata {
 }
 
 func (h *mockHost) Health() bool {
-	return h.healthFlag == 0
+	if h.healthFlag == nil {
+		h.healthFlag = GetHealthFlagPointer(h.addr)
+	}
+	return atomic.LoadUint64(h.healthFlag) == 0
 }
 
-func (h *mockHost) ClearHealthFlag(flag types.HealthFlag) {
-	h.healthFlag &= ^uint64(flag)
+func (h *mockHost) ClearHealthFlag(flag api.HealthFlag) {
+	if h.healthFlag == nil {
+		h.healthFlag = GetHealthFlagPointer(h.addr)
+	}
+	ClearHealthFlag(h.healthFlag, flag)
 }
 
-func (h *mockHost) SetHealthFlag(flag types.HealthFlag) {
-	h.healthFlag |= uint64(flag)
+func (h *mockHost) SetHealthFlag(flag api.HealthFlag) {
+	if h.healthFlag == nil {
+		h.healthFlag = GetHealthFlagPointer(h.addr)
+	}
+	SetHealthFlag(h.healthFlag, flag)
 }
 
-func (h *mockHost) HealthFlag() types.HealthFlag {
-	return types.HealthFlag(h.healthFlag)
+func (h *mockHost) HealthFlag() api.HealthFlag {
+	return api.HealthFlag(atomic.LoadUint64(h.healthFlag))
+}
+func (h *mockHost) HostStats() types.HostStats {
+	return h.stats
+}
+func (h *mockHost) Weight() uint32 {
+	return h.weight
 }
 
 type ipPool struct {
@@ -82,6 +100,7 @@ func (pool *ipPool) MakeHosts(size int, meta api.Metadata) []types.Host {
 			meta: meta,
 		}
 		host.name = host.addr
+		host.stats = newHostStats(meta["cluster"], host.addr)
 		hosts[i] = host
 	}
 	return hosts
@@ -101,13 +120,14 @@ func makePool(size int) *ipPool {
 }
 
 type mockConnPool struct {
-	h types.Host
+	host       atomic.Value
+	supportTLS bool
 	types.ConnectionPool
 }
 
-const mockProtocol = types.Protocol("mock")
+const mockProtocol = types.ProtocolName("mock")
 
-func (p *mockConnPool) Protocol() types.Protocol {
+func (p *mockConnPool) Protocol() types.ProtocolName {
 	return mockProtocol
 }
 
@@ -116,17 +136,38 @@ func (p *mockConnPool) CheckAndInit(ctx context.Context) bool {
 }
 
 func (p *mockConnPool) SupportTLS() bool {
-	return p.h.SupportTLS()
+	return p.supportTLS
 }
 
 func (p *mockConnPool) Shutdown() {
 }
 
+func (p *mockConnPool) Close() {
+}
+
+func (p *mockConnPool) NewStream(ctx context.Context, receiver types.StreamReceiveListener, listener types.PoolEventListener) {
+}
+
+func (p *mockConnPool) Host() types.Host {
+	h := p.host.Load()
+	if host, ok := h.(types.Host); ok {
+		return host
+	}
+
+	return nil
+}
+
+func (p *mockConnPool) UpdateHost(h types.Host) {
+	p.host.Store(h)
+}
+
 func init() {
 	network.RegisterNewPoolFactory(mockProtocol, func(h types.Host) types.ConnectionPool {
-		return &mockConnPool{
-			h: h,
+		pool := &mockConnPool{
+			supportTLS: h.SupportTLS(),
 		}
+		pool.host.Store(h)
+		return pool
 	})
 	types.RegisterConnPoolFactory(mockProtocol, true)
 }

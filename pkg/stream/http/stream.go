@@ -143,7 +143,7 @@ func (sc *streamConnection) Dispatch(buffer buffer.IoBuffer) {
 	}
 }
 
-func (conn *streamConnection) Protocol() types.Protocol {
+func (conn *streamConnection) Protocol() types.ProtocolName {
 	return protocol.HTTP1
 }
 
@@ -231,6 +231,13 @@ func (conn *clientStreamConnection) serve() {
 		s := conn.stream
 		buffers := httpBuffersByContext(s.ctx)
 		s.response = &buffers.clientResponse
+		request := &buffers.serverRequest
+
+		// Response.Read() skips reading body if set to true.
+		// Use it for reading HEAD responses.
+		if request.Header.IsHead() {
+			s.response.SkipBody = true
+		}
 
 		// 1. blocking read using fasthttp.Response.Read
 		err := s.response.Read(conn.br)
@@ -383,6 +390,8 @@ func (conn *serverStreamConnection) serve() {
 		ctx := conn.contextManager.Get()
 		buffers := httpBuffersByContext(ctx)
 		request := &buffers.serverRequest
+
+		request.Header.DisableNormalizing()
 
 		// 2. blocking read using fasthttp.Request.Read
 		err := request.ReadLimitBody(conn.br, defaultMaxRequestBodySize)
@@ -695,6 +704,13 @@ func (s *serverStream) AppendTrailers(context context.Context, trailers types.He
 
 func (s *serverStream) endStream() {
 	resetConn := false
+
+	// Response.Write() skips writing body if set to true.
+	// Use it for writing HEAD responses.
+	if s.request.Header.IsHead() {
+		s.response.SkipBody = true
+	}
+
 	// check if we need close connection
 	if s.connection.close || s.request.Header.ConnectionClose() {
 		s.response.SetConnectionClose()

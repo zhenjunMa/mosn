@@ -20,13 +20,15 @@ package cluster
 import (
 	"context"
 	"net"
-	"sync"
+	"sync/atomic"
+	"time"
 
 	"mosn.io/api"
 	v2 "mosn.io/mosn/pkg/config/v2"
 	"mosn.io/mosn/pkg/log"
 	"mosn.io/mosn/pkg/network"
 	"mosn.io/mosn/pkg/types"
+	"mosn.io/pkg/utils"
 )
 
 // simpleHost is an implement of types.Host and types.HostInfo
@@ -38,7 +40,7 @@ type simpleHost struct {
 	metaData      api.Metadata
 	tlsDisable    bool
 	weight        uint32
-	healthFlags   uint64
+	healthFlags   *uint64
 }
 
 func NewSimpleHost(config v2.Host, clusterInfo types.ClusterInfo) types.Host {
@@ -53,6 +55,7 @@ func NewSimpleHost(config v2.Host, clusterInfo types.ClusterInfo) types.Host {
 		metaData:      config.MetaData,
 		tlsDisable:    config.TLSDisable,
 		weight:        config.Weight,
+		healthFlags:   GetHealthFlagPointer(config.Address),
 	}
 }
 
@@ -98,13 +101,13 @@ func (sh *simpleHost) Config() v2.Host {
 }
 
 func (sh *simpleHost) SupportTLS() bool {
-	return !sh.tlsDisable && sh.clusterInfo.TLSMng().Enabled()
+	return IsSupportTLS() && !sh.tlsDisable && sh.clusterInfo.TLSMng().Enabled()
 }
 
 // types.Host Implement
 func (sh *simpleHost) CreateConnection(context context.Context) types.CreateConnectionData {
 	var tlsMng types.TLSContextManager
-	if !sh.tlsDisable {
+	if sh.SupportTLS() {
 		tlsMng = sh.clusterInfo.TLSMng()
 	}
 	clientConn := network.NewClientConnection(nil, sh.clusterInfo.ConnectTimeout(), tlsMng, sh.Address(), nil)
@@ -116,38 +119,57 @@ func (sh *simpleHost) CreateConnection(context context.Context) types.CreateConn
 	}
 }
 
-func (sh *simpleHost) ClearHealthFlag(flag types.HealthFlag) {
-	sh.healthFlags &= ^uint64(flag)
+func (sh *simpleHost) ClearHealthFlag(flag api.HealthFlag) {
+	ClearHealthFlag(sh.healthFlags, flag)
 }
 
-func (sh *simpleHost) ContainHealthFlag(flag types.HealthFlag) bool {
-	return sh.healthFlags&uint64(flag) > 0
+func (sh *simpleHost) ContainHealthFlag(flag api.HealthFlag) bool {
+	return atomic.LoadUint64(sh.healthFlags)&uint64(flag) > 0
 }
 
-func (sh *simpleHost) SetHealthFlag(flag types.HealthFlag) {
-	sh.healthFlags |= uint64(flag)
+func (sh *simpleHost) SetHealthFlag(flag api.HealthFlag) {
+	SetHealthFlag(sh.healthFlags, flag)
 }
 
-func (sh *simpleHost) HealthFlag() types.HealthFlag {
-	return types.HealthFlag(sh.healthFlags)
+func (sh *simpleHost) HealthFlag() api.HealthFlag {
+	return api.HealthFlag(atomic.LoadUint64(sh.healthFlags))
 }
 
 func (sh *simpleHost) Health() bool {
-	return sh.healthFlags == 0
+	return atomic.LoadUint64(sh.healthFlags) == 0
 }
 
 // net.Addr reuse for same address, valid in simple type
-var AddrStore *sync.Map = &sync.Map{}
+// Update DNS cache using asynchronous mode
+var AddrStore *utils.ExpiredMap = utils.NewExpiredMap(
+	func(key interface{}) (interface{}, bool) {
+		addr, err := net.ResolveTCPAddr("tcp", key.(string))
+		if err == nil {
+			return addr, true
+		}
+		return nil, false
+	}, false)
 
 func GetOrCreateAddr(addrstr string) net.Addr {
-	if addr, ok := AddrStore.Load(addrstr); ok {
+
+	if addr, _ := AddrStore.Get(addrstr); addr != nil {
 		return addr.(net.Addr)
 	}
+
 	addr, err := net.ResolveTCPAddr("tcp", addrstr)
 	if err != nil {
 		log.DefaultLogger.Errorf("[upstream] resolve addr %s failed: %v", addrstr, err)
 		return nil
 	}
-	AddrStore.Store(addrstr, addr)
+
+	if addr.String() != addrstr {
+		// TODO support config or depends on DNS TTL for expire time
+		// now set default expire time == 100 s, Means that after 100 seconds, the new request will trigger domain resolve.
+		AddrStore.Set(addrstr, addr, 100*time.Second)
+	} else {
+		// if addrsstr isn't domain and don't set expire time
+		AddrStore.Set(addrstr, addr, utils.NeverExpire)
+	}
+
 	return addr
 }

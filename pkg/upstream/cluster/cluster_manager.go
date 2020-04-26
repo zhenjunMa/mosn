@@ -66,37 +66,37 @@ type clusterManagerSingleton struct {
 }
 
 func (singleton *clusterManagerSingleton) Destroy() {
-	clusterMangerInstance.instanceMutex.Lock()
-	defer clusterMangerInstance.instanceMutex.Unlock()
-	clusterMangerInstance.clusterManager = nil
+	clusterManagerInstance.instanceMutex.Lock()
+	defer clusterManagerInstance.instanceMutex.Unlock()
+	clusterManagerInstance.clusterManager = nil
 }
 
-var clusterMangerInstance = &clusterManagerSingleton{}
+var clusterManagerInstance = &clusterManagerSingleton{}
 
 func NewClusterManagerSingleton(clusters []v2.Cluster, clusterMap map[string][]v2.Host) types.ClusterManager {
-	clusterMangerInstance.instanceMutex.Lock()
-	defer clusterMangerInstance.instanceMutex.Unlock()
-	if clusterMangerInstance.clusterManager != nil {
-		return clusterMangerInstance
+	clusterManagerInstance.instanceMutex.Lock()
+	defer clusterManagerInstance.instanceMutex.Unlock()
+	if clusterManagerInstance.clusterManager != nil {
+		return clusterManagerInstance
 	}
-	clusterMangerInstance.clusterManager = &clusterManager{}
+	clusterManagerInstance.clusterManager = &clusterManager{}
 	for k := range types.ConnPoolFactories {
-		clusterMangerInstance.protocolConnPool.Store(k, &sync.Map{})
+		clusterManagerInstance.protocolConnPool.Store(k, &sync.Map{})
 	}
 
 	//Add cluster to cm
 	for _, cluster := range clusters {
-		if err := clusterMangerInstance.AddOrUpdatePrimaryCluster(cluster); err != nil {
-			log.DefaultLogger.Errorf("[upstream] [cluster manager] NewClusterManager: AddOrUpdatePrimaryCluster failure, cluster name = %s, error: %v", cluster.Name, err)
+		if err := clusterManagerInstance.AddOrUpdatePrimaryCluster(cluster); err != nil {
+			log.DefaultLogger.Alertf("cluster.config", "[upstream] [cluster manager] NewClusterManager: AddOrUpdatePrimaryCluster failure, cluster name = %s, error: %v", cluster.Name, err)
 		}
 	}
 	// Add cluster host
 	for clusterName, hosts := range clusterMap {
-		if err := clusterMangerInstance.UpdateClusterHosts(clusterName, hosts); err != nil {
-			log.DefaultLogger.Errorf("[upstream] [cluster manager] NewClusterManager: UpdateClusterHosts failure, cluster name = %s, error: %v", clusterName, err)
+		if err := clusterManagerInstance.UpdateClusterHosts(clusterName, hosts); err != nil {
+			log.DefaultLogger.Alertf("cluster.config", "[upstream] [cluster manager] NewClusterManager: UpdateClusterHosts failure, cluster name = %s, error: %v", clusterName, err)
 		}
 	}
-	return clusterMangerInstance
+	return clusterManagerInstance
 }
 
 // AddOrUpdatePrimaryCluster will always create a new cluster without the hosts config
@@ -116,10 +116,26 @@ func (cm *clusterManager) AddOrUpdatePrimaryCluster(cluster v2.Cluster) error {
 	ci, exists := cm.clustersMap.Load(clusterName)
 	if exists {
 		c := ci.(types.Cluster)
-		//FIXME: cluster info in hosts should be updated too
 		hosts := c.Snapshot().HostSet().Hosts()
+
+		newSnap := newCluster.Snapshot()
+
+		oldResourceManager := c.Snapshot().ClusterInfo().ResourceManager()
+		newResourceManager := newSnap.ClusterInfo().ResourceManager()
+		// sync oldResourceManager to newResourceManager
+		newResourceManager.Connections().UpdateCur(oldResourceManager.Connections().Cur())
+		newResourceManager.PendingRequests().UpdateCur(oldResourceManager.PendingRequests().Cur())
+		newResourceManager.Requests().UpdateCur(oldResourceManager.Requests().Cur())
+		newResourceManager.Retries().UpdateCur(oldResourceManager.Retries().Cur())
+
+		// sync old cluster info
+		newHosts := make([]types.Host, 0, len(hosts))
+		for _, h := range hosts {
+			newHosts = append(newHosts, NewSimpleHost(h.Config(), newSnap.ClusterInfo()))
+		}
+
 		// update hosts, refresh
-		newCluster.UpdateHosts(hosts)
+		newCluster.UpdateHosts(newHosts)
 		refreshHostsConfig(c)
 	}
 	cm.clustersMap.Store(clusterName, newCluster)
@@ -261,7 +277,7 @@ func (cm *clusterManager) TCPConnForCluster(lbCtx types.LoadBalancerContext, sna
 	return host.CreateConnection(context.Background())
 }
 
-func (cm *clusterManager) ConnPoolForCluster(balancerContext types.LoadBalancerContext, snapshot types.ClusterSnapshot, protocol types.Protocol) types.ConnectionPool {
+func (cm *clusterManager) ConnPoolForCluster(balancerContext types.LoadBalancerContext, snapshot types.ClusterSnapshot, protocol types.ProtocolName) types.ConnectionPool {
 	if snapshot == nil || reflect.ValueOf(snapshot).IsNil() {
 		log.DefaultLogger.Errorf("[upstream] [cluster manager]  %s ConnPool For Cluster is nil", protocol)
 		return nil
@@ -273,7 +289,10 @@ func (cm *clusterManager) ConnPoolForCluster(balancerContext types.LoadBalancerC
 	return pool
 }
 
-const cycleTimes = 3
+const (
+	maxHostsCounts  = 3
+	maxTryConnTimes = 7
+)
 
 var (
 	errNilHostChoose   = errors.New("cluster snapshot choose host is nil")
@@ -281,20 +300,20 @@ var (
 	errNoHealthyHost   = errors.New("no health hosts")
 )
 
-func (cm *clusterManager) getActiveConnectionPool(balancerContext types.LoadBalancerContext, clusterSnapshot types.ClusterSnapshot, protocol types.Protocol) (types.ConnectionPool, error) {
+func (cm *clusterManager) getActiveConnectionPool(balancerContext types.LoadBalancerContext, clusterSnapshot types.ClusterSnapshot, protocol types.ProtocolName) (types.ConnectionPool, error) {
 	factory, ok := network.ConnNewPoolFactories[protocol]
 	if !ok {
 		return nil, fmt.Errorf("protocol %v is not registered is pool factory", protocol)
 	}
 
-	var pools [cycleTimes]types.ConnectionPool
+	var pools [maxHostsCounts]types.ConnectionPool
 
 	try := clusterSnapshot.HostNum(balancerContext.MetadataMatchCriteria())
 	if try == 0 {
 		return nil, errNilHostChoose
 	}
-	if try > cycleTimes {
-		try = cycleTimes
+	if try > maxHostsCounts {
+		try = maxHostsCounts
 	}
 	for i := 0; i < try; i++ {
 		host := clusterSnapshot.LoadBalancer().ChooseHost(balancerContext)
@@ -351,6 +370,10 @@ func (cm *clusterManager) getActiveConnectionPool(balancerContext types.LoadBala
 						connectionPool.Store(addr, pool)
 					}
 				}()
+
+			} else if pool.Host() != host {
+				// update host info
+				pool.UpdateHost(host)
 			}
 		}
 		if pool.CheckAndInit(balancerContext.DownstreamContext()) {
@@ -359,9 +382,9 @@ func (cm *clusterManager) getActiveConnectionPool(balancerContext types.LoadBala
 		pools[i] = pool
 	}
 
-	// perhaps the first request, wait for tcp handshaking. total wait time is 1ms + 10ms + 100ms
+	// perhaps the first request, wait for tcp handshaking. total wait time is 1ms + 10ms + (100ms * 5)
 	waitTime := time.Millisecond
-	for t := 0; t < cycleTimes; t++ {
+	for t := 0; t < maxTryConnTimes; t++ {
 		time.Sleep(waitTime)
 		for i := 0; i < try; i++ {
 			if pools[i] == nil {
@@ -371,7 +394,10 @@ func (cm *clusterManager) getActiveConnectionPool(balancerContext types.LoadBala
 				return pools[i], nil
 			}
 		}
-		waitTime *= 10
+		// max wait time is 100 * time.Millisecond
+		if waitTime < 100*time.Millisecond {
+			waitTime *= 10
+		}
 	}
 	return nil, errNoHealthyHost
 }

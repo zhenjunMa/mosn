@@ -43,6 +43,7 @@ func init() {
 }
 
 type injectFilter struct {
+	status  api.StreamFilterStatus
 	handler api.StreamReceiverFilterHandler
 }
 
@@ -51,8 +52,13 @@ func (f *injectFilter) SetReceiveFilterHandler(handler api.StreamReceiverFilterH
 }
 
 func (f *injectFilter) OnReceive(ctx context.Context, headers types.HeaderMap, buf types.IoBuffer, trailers types.HeaderMap) api.StreamFilterStatus {
-	f.inject()
-	return api.StreamFilterReMatchRoute
+	if f.status == api.StreamFilterReMatchRoute {
+		return api.StreamFilterContinue
+	} else {
+		f.inject()
+		f.status = api.StreamFilterReMatchRoute
+		return api.StreamFilterReMatchRoute
+	}
 }
 
 func (f *injectFilter) OnDestroy() {}
@@ -64,7 +70,7 @@ func (f *injectFilter) inject() {
 }
 
 // mosn config with stream filter called inject
-func createInjectProxyMesh(addr string, hosts []string, proto types.Protocol) *v2.MOSNConfig {
+func createInjectProxyMesh(addr string, hosts []string, proto types.ProtocolName) *v2.MOSNConfig {
 	clusterName := "http_server"
 	cmconfig := v2.ClusterManagerConfig{
 		Clusters: []v2.Cluster{

@@ -1,5 +1,69 @@
 # Changelog
 
+## v0.11.0
+
+### New features
+
+- Support the extension of Listener Filter, the transparent hijacking capability is implemented based on Listener Filter [@wangfakang](https://github.com/wangfakang)
+- New Set method for variable mechanism [@pxzero](https://github.com/pxzero)
+- Added automatic retry and exception handling when SDS Client fails [@taoyuanyuan](https://github.com/taoyuanyuan)
+- Improve TraceLog and support injecting context [@nejisama](https://github.com/nejisama)
+
+### Refactoring
+
+- Refactored XProtocol Engine and reimplemented SOFARPC protocol [@neverhook](https://github.com/neverhook)
+  - Removed SOFARPC Healthcheck filter and changed to xprotocol's built-in heartbeat implementation
+  - Removed the original protocol conversion (protocol conv) support of the SOFARPC protocol, and added a new protocol conversion extension implementation capability based on stream filter
+  - xprotocol adds idle free and keepalive
+  - Protocol analysis and optimization
+- Modify the Encode method parameters of HTTP2 protocol [@taoyuanyuan](https://github.com/taoyuanyuan)
+- Streamlined LDS interface parameters [@nejisama](https://github.com/nejisama)
+- Modified the routing configuration model, abandoned `connection_manager` [@nejisama](https://github.com/nejisama)
+
+### Optimization
+
+- Optimize Upstream dynamic domain name resolution mechanism [@wangfakang](https://github.com/wangfakang)
+- Optimized TLS encapsulation, added error log, and modified timeout period in compatibility mode [@nejisama](https://github.com/nejisama)
+- Optimize timeout setting, use variable mechanism to set timeout [@neverhook](https://github.com/neverhook)
+- Dubbo parsing library dependency upgraded to 1.5.0 [@cch123](https://github.com/cch123)
+- Reference path migration script adds OS adaptation [@taomaree](https://github.com/taomaree)
+
+### Bug fix
+
+- Fix the problem of losing query string during HTTP2 protocol forwarding [@champly](https://github.com/champly)
+
+## v0.10.0
+
+### New features
+
+- Support multi-process plugin mode
+- Startup parameters support service-meta parameters
+- Supports abstract uds mode to mount sds socket
+
+### Refactoring
+
+- Separate some mosn base library code into mosn.io/pkg package (github.com/mosn/pkg)
+- Separate mosn interface definition to mosn.io/api package (github.com/mosn/api)
+
+### Optimization
+
+- The log basic module is separated into mosn.io/pkg, and the log of mosn is optimized
+- Optimize FeatureGate
+- Added processing when failed to get SDS configuration
+- When CDS deletes a cluster dynamically, it will stop the health check corresponding to the cluster
+- The callback function when sds triggers certificate update adds certificate configuration as a parameter
+
+### Bug fixes
+
+- Fixed a memory leak issue when SOFARPC Oneway request failed
+- Fixed the issue of 502 error when receiving non-standard HTTP response
+- Fixed possible conflicts during DUMP configuration
+- Fixed the error of Request and Response Size of TraceLog statistics
+- Fixed write timeout failure due to concurrent write connections
+- Fixed serialize bug
+- Fixed the problem that the memory reuse buffer is too large when the connection is read, causing the memory consumption to be too high
+- Optimize Dubbo related implementation in XProtocol
+
 ### v0.9.0
 
 ### New features
